@@ -244,6 +244,23 @@ In progress:
 - [ ] LLM extraction with tool calling
 - [ ] Deploy, sample data, demo
 
+## Deploying
+
+`render.yaml` provisions the database, API and worker; `frontend/vercel.json`
+covers the frontend. Migrations run before the API serves a request, and
+`npm --prefix backend run seed:demo` loads a realistic Shrawan 2081 period —
+uploaded, parsed and reconciled through the real pipeline, so a visitor sees
+genuine output rather than a fixture.
+
+**[docs/DEPLOY.md](docs/DEPLOY.md)** has the full steps, including the one
+setting that silently breaks everything if it differs between the API and the
+worker, and an honest list of what is still missing before this is a product
+rather than a demo.
+
+```bash
+docker compose up --build     # database, API and worker, locally
+```
+
 ## Running the whole thing
 
 ```bash

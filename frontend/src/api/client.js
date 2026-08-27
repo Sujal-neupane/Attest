@@ -7,7 +7,14 @@
  * it removed more than it added.
  */
 
-const BASE = '/api';
+/**
+ * In development the Vite proxy forwards /api to the local server, so a
+ * relative base keeps the browser on one origin. In production the API is a
+ * separate host, and VITE_API_URL supplies it at build time.
+ */
+const BASE = import.meta.env?.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL.replace(/\/$/, '')}/api`
+  : '/api';
 
 /** Tokens live in memory, with the refresh token mirrored to localStorage. */
 let accessToken = null;

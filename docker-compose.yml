@@ -1,0 +1,49 @@
+# Local development with one command.
+#
+# Postgres, the API and the worker. The frontend stays outside on purpose —
+# Vite's dev server is faster on the host, and containerising it buys nothing.
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: attest
+      POSTGRES_DB: attest
+    ports: ['5432:5432']
+    volumes: ['attest-pgdata:/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      retries: 10
+
+  api:
+    build: ./backend
+    # Migrations run before the API accepts a request, so a release that adds a
+    # column cannot start serving before the column exists.
+    command: sh -c "node db/migrate.js && node src/server.js"
+    environment: &env
+      NODE_ENV: development
+      DATABASE_URL: postgres://postgres:attest@postgres:5432/attest
+      JWT_ACCESS_SECRET: local-development-access-secret-32-chars
+      JWT_REFRESH_SECRET: local-development-refresh-secret-differs
+      STORAGE_ROOT: /data/uploads
+      CORS_ORIGIN: http://localhost:5173
+    ports: ['4000:4000']
+    volumes: ['attest-uploads:/data/uploads']
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  worker:
+    build: ./backend
+    command: node src/workers/index.js
+    environment: *env
+    # The same encrypted volume as the API. If these two did not share it the
+    # worker would decrypt nothing, and the symptom would be an integrity error
+    # on a file that is perfectly intact.
+    volumes: ['attest-uploads:/data/uploads']
+    depends_on:
+      postgres: { condition: service_healthy }
+
+volumes:
+  attest-pgdata:
+  attest-uploads:
