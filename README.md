@@ -237,11 +237,24 @@ Built and tested — **224 tests passing** (212 Node, 12 database):
 - [x] CI on every push: unit tests, database tests, lint, dependency audit
 - [x] Brand and design system
 
-In progress:
+- [x] React review sheet — keyboard-driven, with source click-through
 
-- [ ] React review sheet with source click-through
+In progress:
 - [ ] LLM extraction with tool calling
 - [ ] Deploy, sample data, demo
+
+## Running the whole thing
+
+```bash
+# terminal 1 — API
+npm --prefix backend start
+
+# terminal 2 — worker (parsing runs off the request path)
+npm --prefix backend run worker
+
+# terminal 3 — the app
+npm --prefix frontend run dev      # http://localhost:5173
+```
 
 Known gaps, stated rather than hidden:
 
