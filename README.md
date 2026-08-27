@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="#status"><img alt="status" src="https://img.shields.io/badge/status-in%20development-9A6100"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-278%20passing-2F7A6F">
+  <img alt="tests" src="https://img.shields.io/badge/tests-305%20passing-2F7A6F">
   <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-2F7A6F">
   <img alt="postgres" src="https://img.shields.io/badge/postgres-16-2F7A6F">
 </p>
@@ -167,6 +167,24 @@ With a separate broker those two can diverge — the row commits, the enqueue
 fails, and a document is never parsed and never marked failed. That silent drop
 is the thing this product must not do.
 
+**The AI is checked, not trusted — even about what it read.**
+The tax engine stops a model from *calculating* a figure. Extraction is the
+second, quieter way a wrong number gets into a return: a model does not need to
+compute anything to report Rs. 13,100 from an invoice that says Rs. 11,300. The
+transposition is plausible, and every calculation on top of it would be perfect.
+
+So every extracted value must arrive with the exact text it was read from, and
+that text is checked back against the document. A quote that is not in the
+document, or a figure that is not in the quote, rejects the **whole**
+extraction — it becomes a flag for a human, never a set of transactions with one
+unverified number inside. The model's job is to *locate* a value; reading it is
+ours.
+
+Every tool it can call is read-only. There is no tool that computes VAT, writes
+a transaction, or resolves a flag. An agent that can only read cannot cause a
+wrong figure to be filed, whatever it decides.
+[`grounding.js`](backend/src/services/ai/grounding.js) · [tests](backend/tests/grounding.test.js)
+
 **Object storage is encrypted by us, not by the provider.**
 Documents are AES-256-GCM encrypted *before* upload, so an S3-compatible bucket
 holds ciphertext and never the key. Provider-side encryption is worth enabling
@@ -238,7 +256,7 @@ npm --prefix backend run test:db
 
 ## Status
 
-Built and tested — **278 tests passing** (245 backend, 21 frontend, 12 database):
+Built and tested — **305 tests passing** (272 backend, 21 frontend, 12 database):
 
 - [x] Deterministic financial core — money, VAT, TDS, reconciliation, anomalies (41)
 - [x] Database schema with row-level security, append-only audit log (12)
@@ -255,6 +273,7 @@ Built and tested — **278 tests passing** (245 backend, 21 frontend, 12 databas
 - [x] React review sheet — keyboard-driven, with source click-through (21)
 - [x] CSV export — VAT summary, review report, full ledger (9)
 - [x] S3-compatible object storage, signed by hand and tested against MinIO (19)
+- [x] AI extraction with a read-only tool loop and grounding verification (27)
 
 In progress:
 - [ ] LLM extraction with tool calling
