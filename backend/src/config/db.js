@@ -19,8 +19,26 @@
  * together exactly when the pool gets busy.
  */
 
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
 const env = require('./env');
+
+/**
+ * Return DATE columns as plain 'YYYY-MM-DD' strings instead of JS Date objects.
+ *
+ * A calendar date has no time and no timezone. node-pg's default is to parse
+ * DATE into a Date at LOCAL midnight, and serialising that back through
+ * toISOString() shifts it to the previous day in any timezone ahead of UTC —
+ * which includes Nepal, at +05:45. Shrawan 1, 2081 went into the database as
+ * 2024-07-16 and came back out of the API as 2024-07-15.
+ *
+ * That is the exact class of bug this product exists to prevent: a date silently
+ * moved across a period boundary, with nothing on screen looking wrong. Fixed
+ * once, here, at the driver, rather than by remembering to format defensively at
+ * every call site.
+ *
+ * 1082 is the OID for DATE.
+ */
+types.setTypeParser(1082, (value) => value);
 
 const pool = new Pool({
   connectionString: env.DATABASE_URL,

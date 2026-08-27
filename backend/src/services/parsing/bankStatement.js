@@ -18,7 +18,7 @@ const {
   DateError,
   isWithin,
 } = require('../../utils/dates');
-const { bsToAd } = require('../../utils/nepaliCalendar');
+const { bsToAd, adToBs, SUPPORTED_RANGE } = require('../../utils/nepaliCalendar');
 
 /**
  * @param {string} text raw CSV
@@ -50,14 +50,17 @@ function parseBankStatement(text, context = {}) {
   // elsewhere in the same export.
   const rawDates = records.map((r) => r.values[map.date]).filter(Boolean);
 
-  // Probe the calendar before importing anything. If the export is dated in
-  // Bikram Sambat then every row fails for the same reason, and one file-level
-  // explanation is worth more to the accountant than five hundred identical
-  // row errors.
+  // Probe the calendar before importing anything, so the note below can say
+  // once what happened to every date rather than leaving the accountant to
+  // infer it from the rows.
   const bsDate = rawDates.find(looksBikramSambat);
   if (bsDate) {
-    const parsed = parseDate(bsDate);
-    bsToAd(parsed); // throws, with the explanation the accountant needs
+    notes.push(
+      `Dates in this file are in Bikram Sambat (e.g. "${bsDate}") and were ` +
+        `converted to Gregorian using the verified calendar table ` +
+        `(BS ${SUPPORTED_RANGE.firstYear}–${SUPPORTED_RANGE.lastYear}). The ` +
+        `original text is kept against every transaction.`,
+    );
   }
 
   const order = detectDateOrder(rawDates);
@@ -137,6 +140,10 @@ function parseBankStatement(text, context = {}) {
       // PROVENANCE. Every figure on screen can be traced back to the line it
       // came from, and `raw` keeps the text exactly as the bank wrote it so a
       // parsing dispute can be settled against the original.
+      // The date in the calendar the client actually wrote it in, so the review
+      // sheet can show both and the accountant never has to convert in their head.
+      bsDate: bsDate ? adToBs(iso).label : null,
+
       sourceRef: {
         row: rowNumber,
         columns: map,
@@ -199,12 +206,10 @@ function parseBankStatement(text, context = {}) {
 
 function readDate(rawDate, dayFirst) {
   const parsed = parseDate(rawDate, { dayFirst });
-  if (parsed.calendar === 'BS') {
-    // Throws with an explanation; see utils/nepaliCalendar.js for why this
-    // refuses rather than approximating.
-    return bsToAd(parsed);
-  }
-  return parsed.iso;
+  // Bikram Sambat is converted here rather than in parseDate, which stays pure
+  // string handling. A BS year outside the verified table throws with an
+  // explanation instead of being extrapolated — see utils/nepaliCalendar.js.
+  return parsed.calendar === 'BS' ? bsToAd(parsed) : parsed.iso;
 }
 
 /**

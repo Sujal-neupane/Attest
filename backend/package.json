@@ -32,6 +32,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "eslint": "^10.9.1"
+    "eslint": "^10.9.1",
+    "nepali-date-converter": "^3.4.0",
+    "nepali-datetime": "^2.0.0"
   }
 }

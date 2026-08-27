@@ -154,12 +154,38 @@ test('a statement with a single signed amount column works too', () => {
   assert.equal(result.transactions[1].amountPaisa, 2_260_000);
 });
 
-test('a file dated in Bikram Sambat is refused with an explanation, not converted', () => {
+test('a file dated in Bikram Sambat is converted to Gregorian', () => {
+  const text = [
+    'Date,Particulars,Amount',
+    '2081/04/01,PAYMENT,500',
+    '2081/04/15,RECEIPT,-700',
+  ].join('\n');
+  const result = parseBankStatement(text, {});
+
+  // Shrawan 1, 2081 is 16 July 2024 — the first day of FY 2081-82.
+  assert.equal(result.transactions[0].txnDate, '2024-07-16');
+  assert.equal(result.transactions[1].txnDate, '2024-07-30');
+  assert.ok(result.notes.some((n) => /Bikram Sambat/.test(n)));
+});
+
+test('a converted transaction keeps the Bikram Sambat date the client wrote', () => {
   const text = 'Date,Particulars,Amount\n2081/04/01,PAYMENT,500\n';
-  assert.throws(
-    () => parseBankStatement(text, {}),
-    (err) => /Bikram Sambat/.test(err.message) && /wrong VAT period/.test(err.message),
-  );
+  const [txn] = parseBankStatement(text, {}).transactions;
+  assert.equal(txn.bsDate, 'Shrawan 1, 2081');
+  assert.equal(txn.sourceRef.raw.date, '2081/04/01', 'the original text is kept verbatim');
+});
+
+test('a BS date beyond the verified calendar range is refused, not extrapolated', () => {
+  const text = 'Date,Particulars,Amount\n2099/04/01,PAYMENT,500\n';
+  const result = parseBankStatement(text, {});
+  assert.equal(result.transactions.length, 0);
+  assert.match(result.issues.find((i) => i.severity === 'error').reason, /outside the range/);
+});
+
+test('a Gregorian file gets no Bikram Sambat label', () => {
+  const text = 'Date,Particulars,Amount\n16/07/2024,PAYMENT,500\n';
+  const [txn] = parseBankStatement(text, {}).transactions;
+  assert.equal(txn.bsDate, null);
 });
 
 test('a file with contradictory date orders is rejected rather than half-read', () => {

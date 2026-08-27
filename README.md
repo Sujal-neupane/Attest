@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="#status"><img alt="status" src="https://img.shields.io/badge/status-in%20development-9A6100"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-119%20passing-2F7A6F">
+  <img alt="tests" src="https://img.shields.io/badge/tests-136%20passing-2F7A6F">
   <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-2F7A6F">
   <img alt="postgres" src="https://img.shields.io/badge/postgres-16-2F7A6F">
 </p>
@@ -126,6 +126,22 @@ mode that kills tools like this. Large round numbers are flagged `low`, and the
 low-severity colour is a near-neutral slate — because a low-severity flag
 genuinely should not pull the eye off a high one.
 
+**The Bikram Sambat calendar is generated and verified, not trusted.**
+BS month lengths are not derivable from a formula — each month runs 29 to 32
+days on a pattern that varies year to year — so conversion needs a published
+table. Several npm packages carry one. This project consults *two independently
+written implementations for every single day in the range* and only commits the
+table where they agree on all of them, then checks it three more ways: every
+year sums to 365 or 366, every month is 29–32 days, and each year's total equals
+the Gregorian gap between its own Baisakh 1 and the next year's — plus known
+Nepali New Year dates that come from neither package.
+
+The two packages turned out to **disagree on 492 dates**, diverging from BS 2087
+onward where the published calendar is still provisional. The table stops at the
+last year they agree on, and conversion beyond it throws. A refused conversion is
+a support ticket; an extrapolated one is a misfiled return.
+[generator](backend/db/data/generate-bs-calendar.js) · [tests](backend/tests/nepaliCalendar.test.js)
+
 **Slow work never runs inside an HTTP request.**
 Parsing and extraction take seconds to minutes. The API enqueues and returns;
 workers process; the client polls. That is also the scaling story: more volume
@@ -178,11 +194,12 @@ npm --prefix backend run test:db
 
 ## Status
 
-Built and tested — **119 tests passing** (107 Node, 12 database):
+Built and tested — **136 tests passing** (124 Node, 12 database):
 
 - [x] Deterministic financial core — money, VAT, TDS, reconciliation, anomalies (41)
 - [x] Database schema with row-level security, append-only audit log (12)
-- [x] Import pipeline — CSV, column mapping, date resolution, bank statements (49)
+- [x] Import pipeline — CSV, column mapping, date resolution, bank statements (53)
+- [x] Bikram Sambat conversion from a cross-validated calendar table (11)
 - [x] API — auth, clients, fiscal periods, tenant isolation end to end (17)
 - [x] CI on every push: unit tests, database tests, lint, dependency audit
 - [x] Brand and design system
@@ -197,10 +214,9 @@ In progress:
 
 Known gaps, stated rather than hidden:
 
-- **Bikram Sambat dates are not converted.** BS month lengths need an official
-  transcribed table, and a table that is nearly right silently moves
-  transactions into the wrong VAT period. BS-dated files are refused at import
-  with an explanation. See [`nepaliCalendar.js`](backend/src/utils/nepaliCalendar.js).
+- **The BS calendar covers BS 2070–2086 only.** The two sources cross-validated
+  to build it diverge from BS 2087 onward, where the published calendar is
+  provisional. Conversion outside that range throws rather than extrapolating.
 - Passwords use scrypt rather than argon2id — see
   [`password.js`](backend/src/utils/password.js) for the reasoning.
 

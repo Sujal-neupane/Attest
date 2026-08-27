@@ -216,6 +216,48 @@ describe('API', async () => {
     assert.equal(body.label, 'FY 2081-82, Shrawan');
   });
 
+  await test('a period can be created from a Bikram Sambat month alone', async () => {
+    const second = await api('POST', '/clients', {
+      token: tokenA,
+      body: { name: 'Everest Retail Pvt Ltd' },
+    });
+    const { status, body } = await api('POST', `/clients/${second.body.id}/periods`, {
+      token: tokenA,
+      body: { bsYear: 2081, bsMonth: 4 },
+    });
+    assert.equal(status, 201);
+    assert.equal(body.label, 'Shrawan 2081');
+    assert.equal(body.startDate, '2024-07-16', 'a DATE must survive the round trip unshifted');
+  });
+
+  await test('a period can be created from a Nepali fiscal year alone', async () => {
+    const third = await api('POST', '/clients', {
+      token: tokenA,
+      body: { name: 'Gurung Hardware' },
+    });
+    const { status, body } = await api('POST', `/clients/${third.body.id}/periods`, {
+      token: tokenA,
+      body: { bsYear: 2081 },
+    });
+    assert.equal(status, 201);
+    assert.equal(body.label, 'FY 2081-82');
+    assert.equal(body.startDate, '2024-07-16');
+    assert.equal(body.endDate, '2025-07-16', 'FY 2081-82 ends on the last day of Ashadh 2082');
+  });
+
+  await test('a BS year beyond the verified calendar is refused with an explanation', async () => {
+    const fourth = await api('POST', '/clients', {
+      token: tokenA,
+      body: { name: 'Far Future Ltd' },
+    });
+    const { status, body } = await api('POST', `/clients/${fourth.body.id}/periods`, {
+      token: tokenA,
+      body: { bsYear: 2099 },
+    });
+    assert.equal(status, 422);
+    assert.match(body.error.message, /outside the range/);
+  });
+
   await test('an overlapping period is refused, because it would double-count', async () => {
     const { status, body } = await api('POST', `/clients/${clientAId}/periods`, {
       token: tokenA,

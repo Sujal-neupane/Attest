@@ -50,13 +50,25 @@ const clientSchema = z.object({
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the format YYYY-MM-DD.');
 
-const periodSchema = z.object({
-  label: z.string().trim().min(2, 'Give the period a label, e.g. "FY 2081-82, Shrawan".').max(120),
-  bsYear: z.coerce.number().int().min(2000).max(2200),
-  bsMonth: z.coerce.number().int().min(1).max(12).optional(),
-  startDate: isoDate,
-  endDate: isoDate,
-});
+// startDate/endDate are optional: given a BS year (and optionally a month), the
+// Gregorian range and the label are derived from the verified calendar table.
+// Supplying them explicitly still works and takes precedence.
+const periodSchema = z
+  .object({
+    label: z.string().trim().min(2).max(120).optional(),
+    bsYear: z.coerce.number().int().min(2000).max(2200),
+    bsMonth: z.coerce.number().int().min(1).max(12).optional(),
+    startDate: isoDate.optional(),
+    endDate: isoDate.optional(),
+  })
+  .refine((v) => (v.startDate ? Boolean(v.endDate) : true), {
+    message: 'Give both a start and an end date, or neither.',
+    path: ['endDate'],
+  })
+  .refine((v) => (v.endDate ? Boolean(v.startDate) : true), {
+    message: 'Give both a start and an end date, or neither.',
+    path: ['startDate'],
+  });
 
 const uuid = z.string().uuid('Not a valid id.');
 

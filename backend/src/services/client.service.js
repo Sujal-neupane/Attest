@@ -6,6 +6,7 @@ const { withFirm } = require('../config/db');
 const clients = require('../repositories/client.repository');
 const audit = require('../repositories/audit.repository');
 const { ApiError } = require('../middleware/errorHandler');
+const { monthRange, fiscalYearRange } = require('../utils/nepaliCalendar');
 
 async function create(user, { name, pan }, context = {}) {
   return withFirm(user.firmId, async (db) => {
@@ -54,6 +55,19 @@ async function get(user, id) {
 }
 
 async function createPeriod(user, clientId, { label, bsYear, bsMonth, startDate, endDate }, context = {}) {
+  // Firms speak in Bikram Sambat — "Shrawan 2081", "FY 2081-82" — and the
+  // engine computes in Gregorian. If the caller gives us only the BS period,
+  // derive the Gregorian range rather than making an accountant convert dates
+  // by hand, which is exactly the error-prone work this product exists to
+  // remove. A BS year outside the verified calendar throws from the converter
+  // with its own explanation.
+  if (!startDate || !endDate) {
+    const derived = bsMonth ? monthRange(bsYear, bsMonth) : fiscalYearRange(bsYear);
+    startDate = startDate || derived.startDate;
+    endDate = endDate || derived.endDate;
+    label = label || derived.label;
+  }
+
   if (endDate < startDate) {
     throw new ApiError(400, 'The period ends before it starts.', { code: 'invalid_period' });
   }
