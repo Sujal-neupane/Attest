@@ -1,3 +1,6 @@
+/* eslint-disable no-console -- A seed script run from a terminal; stdout is
+   its entire user interface. */
+
 /**
  * Demo data.
  *

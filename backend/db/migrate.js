@@ -1,3 +1,6 @@
+/* eslint-disable no-console -- A migration runner run from a terminal; stdout is
+   its entire user interface. */
+
 /**
  * Apply migrations, in order, exactly once each.
  *
