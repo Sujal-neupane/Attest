@@ -176,3 +176,31 @@ test('the flag says why the decision matters, not just that one is needed', () =
   ]);
   assert.match(flag.suggestion, /a deduction made on a\s+suggestion is not one anybody can defend/);
 });
+
+// ---------------------------------------------------------------------------
+// OCR-derived figures
+// ---------------------------------------------------------------------------
+
+const { flagOcrDerivedFigures } = _internals;
+
+test('a figure read by OCR is flagged for a second look', () => {
+  const [flag] = flagOcrDerivedFigures([
+    { id: 't1', txnDate: '2024-07-17', invoiceNumber: 'INV-9', amountPaisa: -1_130_000,
+      sourceRef: { readMethod: 'ocr' } },
+  ]);
+
+  assert.ok(flag);
+  // Low, not high: most OCR is correct, and crying wolf on every scan trains
+  // the reviewer to skip the ones that matter.
+  assert.equal(flag.severity, 'low');
+  assert.match(flag.message, /read by OCR from a scan/);
+  assert.match(flag.suggestion, /a 3 read as an 8 looks exactly as correct as a 3/);
+});
+
+test('a figure read from a real text layer is not flagged', () => {
+  const flags = flagOcrDerivedFigures([
+    { id: 't1', txnDate: '2024-07-17', sourceRef: { readMethod: 'text_layer' } },
+    { id: 't2', txnDate: '2024-07-18', sourceRef: {} },
+  ]);
+  assert.deepEqual(flags, []);
+});

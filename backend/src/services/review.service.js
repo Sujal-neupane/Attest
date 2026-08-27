@@ -151,6 +151,7 @@ async function runReconciliation(user, fiscalPeriodId, context = {}) {
     const vatFlags = flagVatDiscrepancies(computed);
     const unmatchedLedgerFlags = flagUnmatchedLedger(matching, ledger);
     const categoryFlags = flagUnconfirmedCategories(ledger);
+    const ocrFlags = flagOcrDerivedFigures(ledger);
 
     const { supersededFlags } = await review.clearDerivedResults(db, fiscalPeriodId);
 
@@ -158,7 +159,13 @@ async function runReconciliation(user, fiscalPeriodId, context = {}) {
     // Re-raising a resolved finding on every run is how a review tool trains
     // its users to click through without reading.
     const alreadyDecided = await review.resolvedFlagKeys(db, fiscalPeriodId);
-    const fresh = [...ruleFlags, ...vatFlags, ...unmatchedLedgerFlags, ...categoryFlags].filter(
+    const fresh = [
+      ...ruleFlags,
+      ...vatFlags,
+      ...unmatchedLedgerFlags,
+      ...categoryFlags,
+      ...ocrFlags,
+    ].filter(
       (f) => !alreadyDecided.has(`${f.type}::${f.transactionId ?? ''}`),
     );
 
@@ -289,6 +296,44 @@ function flagUnconfirmedCategories(ledger) {
           amountPaisa: txn.amountPaisa,
           proposedCategory: txn.tdsCategory,
           proposedBy: txn.categorySource,
+          documentId: txn.documentId,
+          sourceRef: txn.sourceRef,
+        },
+      ],
+    }));
+}
+
+/**
+ * A figure that came off a scan is worth a second pair of eyes.
+ *
+ * Every other check in this system verifies something. This one admits the
+ * limit of what can be verified: grounding proves the model read what OCR
+ * produced, and nothing proves OCR read what the paper said. A 3 that became an
+ * 8 is grounded, consistent, and wrong.
+ *
+ * Low severity deliberately — most OCR is correct, and crying wolf on every
+ * scanned bill would train the reviewer to skip exactly the ones that matter.
+ */
+function flagOcrDerivedFigures(ledger) {
+  return ledger
+    .filter((txn) => txn.sourceRef?.readMethod === 'ocr')
+    .map((txn) => ({
+      type: 'anomaly',
+      severity: SEVERITY.LOW,
+      transactionId: txn.id,
+      relatedTransactionIds: [],
+      message:
+        `${txn.invoiceNumber ? `Invoice ${txn.invoiceNumber}` : 'This entry'} was read ` +
+        `by OCR from a scan, not from a document's own text.`,
+      suggestion:
+        'Check the figures against the original. OCR misreads digits ' +
+        'confidently — a 3 read as an 8 looks exactly as correct as a 3.',
+      evidence: [
+        {
+          transactionId: txn.id,
+          date: txn.txnDate,
+          amountPaisa: txn.amountPaisa,
+          readMethod: 'ocr',
           documentId: txn.documentId,
           sourceRef: txn.sourceRef,
         },
@@ -612,5 +657,11 @@ module.exports = {
   confirmCategory,
   tdsCategories,
   vatSummary,
-  _internals: { flagVatDiscrepancies, flagUnmatchedLedger, attachTds, flagUnconfirmedCategories },
+  _internals: {
+    flagVatDiscrepancies,
+    flagUnmatchedLedger,
+    attachTds,
+    flagUnconfirmedCategories,
+    flagOcrDerivedFigures,
+  },
 };

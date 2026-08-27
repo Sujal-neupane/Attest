@@ -131,6 +131,8 @@ set for itself.
 
 Stated plainly, because a deployed thing invites people to trust it:
 
+- **A second OCR language.** Only `eng` is installed. A bill printed in Nepali
+  needs `tesseract-ocr-nep` in the image.
 - **Multi-factor authentication.** Designed for, not built.
 - **Data residency.** The IRD's e-billing directives expect Nepali hosting or a
   Nepal-accessible backup. Render's free regions are neither.

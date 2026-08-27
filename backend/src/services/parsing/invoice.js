@@ -21,6 +21,7 @@ const { parseAmount, MoneyError } = require('../../domain/money');
 const { parseDate, looksBikramSambat, DateError } = require('../../utils/dates');
 const { bsToAd, adToBs } = require('../../utils/nepaliCalendar');
 const { extractInvoice, toTransactionDraft } = require('../ai/extract');
+const ocr = require('./ocr');
 
 class InvoiceError extends Error {
   constructor(message, { permanent = true, details } = {}) {
@@ -63,25 +64,73 @@ async function extractPdfText(buffer) {
 /** Enough characters to be a document rather than a scan with no text layer. */
 const MIN_TEXT_LENGTH = 40;
 
+/**
+ * Is this an image rather than a document?
+ *
+ * Checked by magic bytes rather than by extension, because the extension is
+ * whatever the uploader's phone chose. Compared numerically rather than with a
+ * regex — the TIFF markers contain NUL bytes, and a regex full of control
+ * characters is unreadable and easy to get subtly wrong.
+ */
+function looksLikeImage(contents, filename) {
+  const [a, b, c, d] = contents;
+
+  const jpeg = a === 0xff && b === 0xd8;
+  const png = a === 0x89 && b === 0x50 && c === 0x4e && d === 0x47;
+  const tiffLE = a === 0x49 && b === 0x49 && c === 0x2a && d === 0x00;
+  const tiffBE = a === 0x4d && b === 0x4d && c === 0x00 && d === 0x2a;
+
+  return jpeg || png || tiffLE || tiffBE || /\.(jpe?g|png|tiff?)$/i.test(filename ?? '');
+}
+
+/**
+ * Get text out of whatever was uploaded.
+ *
+ * Three routes, in descending order of trustworthiness:
+ *
+ *   a PDF with a text layer   exact characters, as the software wrote them
+ *   a scanned PDF             rendered and OCR'd — accurate, but not exact
+ *   a photograph              the same, usually worse
+ *
+ * The route taken is returned, because everything downstream needs to know it.
+ * Grounding can prove the model read what OCR produced; nothing can prove OCR
+ * read what the paper said, and pretending otherwise would be the one
+ * dishonest thing in this pipeline.
+ */
 async function readDocumentText(contents, filename) {
+  if (looksLikeImage(contents, filename)) {
+    if (!(await ocr.isAvailable())) {
+      throw new InvoiceError(
+        'This is a photograph, and OCR is not installed on this deployment. ' +
+          'Enter the bill through a purchase register instead.',
+      );
+    }
+    return ocr.ocrImage(contents);
+  }
+
   const isPdf =
     contents.subarray(0, 5).toString('latin1') === '%PDF-' ||
     /\.pdf$/i.test(filename ?? '');
 
-  if (!isPdf) return { text: contents.toString('utf8'), pages: null };
+  if (!isPdf) return { text: contents.toString('utf8'), pages: null, method: 'text' };
 
   const { text, pages } = await extractPdfText(contents);
 
-  if (text.trim().length < MIN_TEXT_LENGTH) {
+  if (text.trim().length >= MIN_TEXT_LENGTH) {
+    return { text, pages, method: 'text_layer' };
+  }
+
+  // No text layer: a scan, or a photograph saved as a PDF.
+  if (!(await ocr.isAvailable())) {
     throw new InvoiceError(
       'This PDF has no readable text — it is a scan or a photograph rather than ' +
-        'a generated document. Attest cannot read it yet: OCR is not built. ' +
-        'Enter this bill through a purchase register for now.',
-      { permanent: true },
+        'a generated document — and OCR is not installed on this deployment. ' +
+        'Install tesseract-ocr and poppler-utils, or enter this bill through a ' +
+        'purchase register.',
     );
   }
 
-  return { text, pages };
+  return ocr.ocrPdf(contents);
 }
 
 /**
@@ -93,7 +142,7 @@ async function readDocumentText(contents, filename) {
  * @param {object} deps     { client, betaZodTool, betaZodOutputFormat }
  */
 async function parseInvoice(contents, context, deps) {
-  const { text, pages } = await readDocumentText(contents, context.filename);
+  const { text, pages, method } = await readDocumentText(contents, context.filename);
 
   const result = await extractInvoice(
     { documentText: text, context },
@@ -111,7 +160,12 @@ async function parseInvoice(contents, context, deps) {
 
   const draft = toTransactionDraft(result.extraction, {
     documentId: context.documentId,
-    sourceRef: { pages, toolCalls: result.toolCalls.map((c) => c.name) },
+    sourceRef: {
+      pages,
+      // Carried forward so the review sheet can say a figure came off a scan.
+      readMethod: method,
+      toolCalls: result.toolCalls.map((c) => c.name),
+    },
   });
 
   const transaction = toTransaction(draft, context);
@@ -122,6 +176,13 @@ async function parseInvoice(contents, context, deps) {
     notes: [
       `Read by ${draft.sourceRef.extractedBy}. Every value was checked back ` +
         `against the document text before being accepted.`,
+      ...(method === 'ocr'
+        ? [
+            'This document had no text layer, so it was read by OCR. Grounding ' +
+              'proves the model read what OCR produced — it cannot prove OCR read ' +
+              'what the paper says. Check every figure against the original.',
+          ]
+        : []),
       ...(result.extraction.notes ? [`Model note: ${result.extraction.notes}`] : []),
       ...(result.toolCalls.length
         ? [`The model looked things up ${result.toolCalls.length} time(s) while reading.`]
@@ -133,6 +194,7 @@ async function parseInvoice(contents, context, deps) {
       errors: 0,
       warnings: 0,
       kind: draft.kind,
+      readMethod: method,
       usage: result.usage ?? null,
     },
   };

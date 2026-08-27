@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="#status"><img alt="status" src="https://img.shields.io/badge/status-in%20development-9A6100"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-342%20passing-2F7A6F">
+  <img alt="tests" src="https://img.shields.io/badge/tests-363%20passing-2F7A6F">
   <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-2F7A6F">
   <img alt="postgres" src="https://img.shields.io/badge/postgres-16-2F7A6F">
 </p>
@@ -180,6 +180,15 @@ With a separate broker those two can diverge — the row commits, the enqueue
 fails, and a document is never parsed and never marked failed. That silent drop
 is the thing this product must not do.
 
+**OCR output is treated as suspect, and says so.**
+A scanned bill is rendered and read by tesseract, then goes through the same
+grounding check as everything else. But that check can only prove the model read
+what OCR produced — nothing can prove OCR read what the paper said. A 3 misread
+as an 8 is grounded, internally consistent, and wrong. So an OCR-derived figure
+carries that fact into the review sheet as a low-severity flag telling the
+accountant to check it against the original. Low, not high: most OCR is correct,
+and crying wolf on every scan trains a reviewer to skip the ones that matter.
+
 **The AI is checked, not trusted — even about what it read.**
 The tax engine stops a model from *calculating* a figure. Extraction is the
 second, quieter way a wrong number gets into a return: a model does not need to
@@ -269,7 +278,7 @@ npm --prefix backend run test:db
 
 ## Status
 
-Built and tested — **342 tests passing** (309 backend, 21 frontend, 12 database):
+Built and tested — **363 tests passing** (330 backend, 21 frontend, 12 database):
 
 - [x] Deterministic financial core — money, VAT, TDS, reconciliation, anomalies (41)
 - [x] Database schema with row-level security, append-only audit log (12)
@@ -288,6 +297,7 @@ Built and tested — **342 tests passing** (309 backend, 21 frontend, 12 databas
 - [x] CSV export — VAT summary, review report, full ledger (9)
 - [x] S3-compatible object storage, signed by hand and tested against MinIO (19)
 - [x] AI extraction — read-only tool loop, grounding, PDF invoices end to end (43)
+- [x] OCR for scanned and photographed bills, flagged as OCR-derived (9)
 
 In progress:
 - [ ] LLM extraction with tool calling

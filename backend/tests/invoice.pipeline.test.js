@@ -217,21 +217,42 @@ run('AN INVENTED TOTAL FAILS THE DOCUMENT — it never becomes a transaction', a
   assert.match(stored.failureReason, /a figure that was not read is a figure that was invented/);
 });
 
-run('a scan with no text layer is refused before any model is called', async () => {
-  // A photographed bill has no text to extract. Sending an empty page to a
-  // model and trusting what comes back is exactly how a confident extraction
-  // of nothing happens.
+run('a blank scan is reported as unreadable, and never reaches the model', async () => {
+  // OCR is available here, so the page IS rendered and read — it simply has
+  // nothing on it. Either way the model is never asked to interpret an empty
+  // page, which is how a confident extraction of nothing happens.
   const mockServer = await useModel([structured(HONEST)]);
 
-  const document = await uploadPdf(['x'], 'photo.pdf');
+  const document = await uploadPdf(['x'], 'blank-scan.pdf');
   const outcome = await worker.runOnce({ store, logger: {} });
 
   assert.equal(outcome.ok, false);
   assert.equal(mockServer.requests.length, 0, 'no request should have been made');
 
   const stored = await service.get(user, document.id);
-  assert.match(stored.failureReason, /no readable text/);
-  assert.match(stored.failureReason, /OCR is not built/);
+  assert.match(stored.failureReason, /almost no text|no readable text/);
+});
+
+run('with OCR unavailable, a scan says so and names what to install', async () => {
+  const ocr = require('../src/services/parsing/ocr');
+  ocr.resetAvailability(false);
+
+  try {
+    const mockServer = await useModel([structured(HONEST)]);
+    const document = await uploadPdf(['x'], 'no-ocr.pdf');
+    const outcome = await worker.runOnce({ store, logger: {} });
+
+    assert.equal(outcome.ok, false);
+    assert.equal(mockServer.requests.length, 0);
+
+    const stored = await service.get(user, document.id);
+    assert.match(stored.failureReason, /no readable text/);
+    // Naming the packages turns an outage into a fix.
+    assert.match(stored.failureReason, /tesseract-ocr and poppler-utils/);
+    assert.match(stored.failureReason, /purchase register/);
+  } finally {
+    ocr.resetAvailability(null);
+  }
 });
 
 run('an invoice whose own total is wrong is imported, with the discrepancy preserved', async () => {

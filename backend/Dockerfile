@@ -17,6 +17,17 @@ FROM node:22-slim
 WORKDIR /app
 ENV NODE_ENV=production
 
+# OCR for scanned and photographed bills. tesseract reads the pixels; poppler
+# rasterises a scanned PDF into pages for it to read.
+#
+# Two apt packages rather than tesseract.js, which is a WASM build of this same
+# engine that downloads a language model at runtime — a container that fetches
+# 15MB on its first upload is one that fails on its first upload behind a
+# firewall.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends tesseract-ocr poppler-utils \
+  && rm -rf /var/lib/apt/lists/*
+
 # Runs as the non-root `node` user that the base image already provides. A
 # process holding client financial documents has no business being root.
 COPY --from=deps --chown=node:node /app/node_modules ./node_modules
