@@ -299,11 +299,16 @@ async function resolveFlag(user, flagId, { status, note }, context = {}) {
     if (!flag) throw new ApiError(404, 'That flag was not found.', { code: 'not_found' });
 
     if (flag.status !== 'open') {
-      throw new ApiError(
-        409,
-        `That flag was already ${flag.status}${flag.resolvedAt ? ` on ${String(flag.resolvedAt).slice(0, 10)}` : ''}.`,
-        { code: 'already_resolved' },
-      );
+      // resolved_at is a timestamptz, which node-pg gives back as a Date.
+      // String(date) renders "Thu Aug 27 2026 ..." — slicing that produced
+      // "already dismissed on Thu Aug 27", which reads like a bug to anyone
+      // seeing it. Formatted as a real date instead.
+      const on = flag.resolvedAt
+        ? ` on ${new Date(flag.resolvedAt).toISOString().slice(0, 10)}`
+        : '';
+      throw new ApiError(409, `That flag was already ${flag.status}${on}.`, {
+        code: 'already_resolved',
+      });
     }
 
     if (status === 'dismissed' && flag.severity === 'high') {

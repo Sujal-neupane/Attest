@@ -259,6 +259,8 @@ run('the same flag cannot be resolved twice', async () => {
   });
   assert.equal(status, 409);
   assert.equal(body.error.code, 'already_resolved');
+  // A real date, not "Thu Aug 27" — the message is read by an accountant.
+  assert.match(body.error.message, /already accepted on \d{4}-\d{2}-\d{2}\./);
 });
 
 run("re-running reconciliation does not re-ask a question already answered", async () => {
