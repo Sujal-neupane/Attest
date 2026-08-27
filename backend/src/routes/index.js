@@ -15,6 +15,7 @@ const clientService = require('../services/client.service');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { healthcheck } = require('../config/db');
+const documentRoutes = require('./documents');
 
 const router = express.Router();
 
@@ -202,5 +203,8 @@ router.get(
     res.json(await clientService.listPeriods(req.user, id));
   }),
 );
+
+// Documents, pipeline status and parsed transactions.
+router.use(documentRoutes);
 
 module.exports = router;

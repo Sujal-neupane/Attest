@@ -27,6 +27,8 @@ module.exports = [
         clearTimeout: 'readonly',
         fetch: 'readonly',
         URL: 'readonly',
+        FormData: 'readonly',
+        Blob: 'readonly',
       },
     },
     rules: {

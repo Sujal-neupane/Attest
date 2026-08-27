@@ -13,10 +13,9 @@
 /* eslint-disable no-console -- process entrypoint; stdout is the log. */
 
 const crypto = require('node:crypto');
-const path = require('node:path');
 const env = require('../config/env');
 const db = require('../config/db');
-const storage = require('../services/storage');
+const storageConfig = require('../config/storage');
 const { runOnce } = require('./parseDocument');
 
 /** How long to wait after finding an empty queue before asking again. */
@@ -24,32 +23,11 @@ const IDLE_POLL_MS = 2_000;
 /** After an unexpected error, back off before hammering whatever broke. */
 const ERROR_PAUSE_MS = 5_000;
 
-function resolveStore() {
-  // The key must be 32 bytes of real entropy. In development one is derived
-  // from the JWT secret so the worker and API agree without extra setup; in
-  // production it is a distinct, explicitly configured secret, because reusing
-  // a signing key as an encryption key is a mistake that is invisible until it
-  // matters.
-  const secret = process.env.STORAGE_ENCRYPTION_KEY;
-  if (env.isProduction && !secret) {
-    console.error('STORAGE_ENCRYPTION_KEY is required in production.');
-    process.exit(1);
-  }
-  const key = secret
-    ? Buffer.from(secret, 'base64')
-    : crypto.createHash('sha256').update(`dev-storage:${env.JWT_ACCESS_SECRET}`).digest();
-
-  if (key.length !== storage.KEY_BYTES) {
-    console.error(`STORAGE_ENCRYPTION_KEY must decode to ${storage.KEY_BYTES} bytes.`);
-    process.exit(1);
-  }
-
-  const root = path.resolve(process.env.STORAGE_ROOT || 'uploads');
-  return storage.createLocalStorage({ root, key });
-}
-
 async function main() {
-  const store = resolveStore();
+  // Shared with the API. If these two derived the key separately they could
+  // drift, and the symptom would be an integrity-check failure on a file that
+  // is perfectly intact.
+  const { store } = storageConfig.get();
   const workerId = `${process.pid}-${crypto.randomUUID().slice(0, 8)}`;
   console.log(`Attest worker ${workerId} started (${env.NODE_ENV})`);
 
@@ -98,4 +76,3 @@ if (require.main === module) {
   });
 }
 
-module.exports = { resolveStore };

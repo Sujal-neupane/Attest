@@ -49,6 +49,21 @@ const USER_FACING = [
   NepaliCalendarError,
 ];
 
+/**
+ * Multer signals an oversized or malformed upload with its own error class.
+ * Left untranslated it surfaces as a 500, which tells the accountant nothing
+ * and tells us nothing either.
+ */
+const MULTER_MESSAGES = {
+  LIMIT_FILE_SIZE: 'That file is too large.',
+  LIMIT_FILE_COUNT: 'Upload one file at a time.',
+  LIMIT_UNEXPECTED_FILE: 'Send the document under the field "file".',
+};
+
+function isMulterError(err) {
+  return err?.name === 'MulterError' && typeof err.code === 'string';
+}
+
 function notFound(req, _res, next) {
   next(new ApiError(404, `No route for ${req.method} ${req.path}.`, { code: 'not_found' }));
 }
@@ -68,6 +83,17 @@ function errorHandler(err, req, res, _next) {
           field: i.path.join('.') || '(body)',
           message: i.message,
         })),
+        requestId,
+      },
+    });
+  }
+
+  if (isMulterError(err)) {
+    logError(req, err, 400);
+    return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({
+      error: {
+        code: err.code.toLowerCase(),
+        message: MULTER_MESSAGES[err.code] || 'That upload could not be read.',
         requestId,
       },
     });

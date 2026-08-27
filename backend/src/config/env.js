@@ -28,7 +28,15 @@ const schema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
-  // Optional in development so the app runs before storage is wired up.
+  // Where encrypted documents live, and the keys that protect them.
+  STORAGE_ROOT: z.string().default('uploads'),
+  // 32 bytes, base64. Required in production; derived from the access secret in
+  // development so the API and worker agree without extra setup.
+  STORAGE_ENCRYPTION_KEY: z.string().optional(),
+  // Signs short-lived document links. Separate from the token secrets so that
+  // rotating one does not invalidate the other.
+  STORAGE_SIGNING_SECRET: z.string().optional(),
+
   STORAGE_BUCKET: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
 });

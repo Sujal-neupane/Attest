@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="#status"><img alt="status" src="https://img.shields.io/badge/status-in%20development-9A6100"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-136%20passing-2F7A6F">
+  <img alt="tests" src="https://img.shields.io/badge/tests-192%20passing-2F7A6F">
   <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-2F7A6F">
   <img alt="postgres" src="https://img.shields.io/badge/postgres-16-2F7A6F">
 </p>
@@ -143,9 +143,24 @@ a support ticket; an extrapolated one is a misfiled return.
 [generator](backend/db/data/generate-bs-calendar.js) · [tests](backend/tests/nepaliCalendar.test.js)
 
 **Slow work never runs inside an HTTP request.**
-Parsing and extraction take seconds to minutes. The API enqueues and returns;
-workers process; the client polls. That is also the scaling story: more volume
-means more workers, not a bigger box.
+Parsing and extraction take seconds to minutes. The API enqueues and returns
+`202 Accepted`; a separate worker process parses; the client polls. That is also
+the scaling story: more volume means more workers, not a bigger box.
+
+The queue is Postgres with `SKIP LOCKED`, not Redis. The deciding reason is that
+enqueueing happens in the **same transaction** as the document row it refers to.
+With a separate broker those two can diverge — the row commits, the enqueue
+fails, and a document is never parsed and never marked failed. That silent drop
+is the thing this product must not do.
+
+**Documents are encrypted at rest, in development as well as production.**
+AES-256-GCM, which authenticates as well as encrypts, so a file altered on disk
+fails to decrypt rather than returning corrupted bytes that then get parsed into
+transactions. The alternative to encrypting in development is a folder of real
+client bank statements in plaintext on a laptop — and an encryption path only
+exercised in production is one nobody has tested. Storage keys carry ids and
+never filenames, because keys reach logs and a client's name in a log line is a
+confidentiality leak.
 
 ## Design
 
@@ -194,19 +209,20 @@ npm --prefix backend run test:db
 
 ## Status
 
-Built and tested — **136 tests passing** (124 Node, 12 database):
+Built and tested — **192 tests passing** (180 Node, 12 database):
 
 - [x] Deterministic financial core — money, VAT, TDS, reconciliation, anomalies (41)
 - [x] Database schema with row-level security, append-only audit log (12)
 - [x] Import pipeline — CSV, column mapping, date resolution, bank statements (53)
 - [x] Bikram Sambat conversion from a cross-validated calendar table (11)
-- [x] API — auth, clients, fiscal periods, tenant isolation end to end (17)
+- [x] API — auth, clients, fiscal periods, tenant isolation end to end (20)
+- [x] Encrypted document storage and a Postgres-backed job queue (28)
+- [x] Upload pipeline — file → encrypted store → worker → ledger (28)
 - [x] CI on every push: unit tests, database tests, lint, dependency audit
 - [x] Brand and design system
 
 In progress:
 
-- [ ] Document upload to encrypted storage, background worker pipeline
 - [ ] Sales and purchase register import
 - [ ] Review sheet with source click-through
 - [ ] LLM extraction with tool calling
