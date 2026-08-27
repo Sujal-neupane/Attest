@@ -719,3 +719,27 @@ kbd {
   font-size: var(--text-2xs);
   color: var(--ink-400);
 }
+
+/* ---- TDS classification ------------------------------------------------- */
+
+.classify { display: inline-flex; align-items: center; gap: var(--space-2); }
+
+.classify__select {
+  min-height: 32px;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: var(--text-2xs);
+  max-width: 18ch;
+}
+
+/* An unconfirmed suggestion has to look unlike a decision, because no tax is
+   computed from it and a reviewer who misses that will not understand why a
+   total looks short. */
+.tag--ai {
+  background: var(--severity-medium-soft);
+  color: var(--severity-medium);
+  border: 1px solid var(--severity-medium-line);
+  white-space: nowrap;
+}

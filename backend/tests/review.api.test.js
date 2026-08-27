@@ -344,6 +344,120 @@ run("another firm cannot see or resolve this firm's flags", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// TDS: propose, confirm, compute
+// ---------------------------------------------------------------------------
+
+run('the TDS categories are offered with their legal basis', async () => {
+  const { status, body } = await json('GET', '/tds-categories', { token });
+  assert.equal(status, 200);
+
+  const rent = body.find((c) => c.category === 'rent');
+  assert.equal(rent.label, 'Rent');
+  // The section is offered so the review report can cite the legal basis next
+  // to a deduction. Accountants check that.
+  assert.equal(rent.section, 'Sec. 88(1)');
+
+  // Rates are deliberately NOT exposed here either — the engine owns them.
+  assert.equal(rent.bp, undefined);
+});
+
+run('no TDS is computed until a person classifies the payment', async () => {
+  const { body } = await json('GET', `/periods/${periodId}/transactions`, { token });
+  for (const txn of body.filter((t) => t.source === 'ledger')) {
+    assert.equal(txn.tdsPaisa, null, 'nothing classified means nothing withheld');
+  }
+});
+
+run('confirming a classification records who decided it', async () => {
+  const { body: txns } = await json('GET', `/periods/${periodId}/transactions`, { token });
+  const target = txns.find((t) => t.source === 'ledger');
+
+  const { status, body } = await json('PATCH', `/transactions/${target.id}/category`, {
+    token,
+    body: { category: 'professional_fee' },
+  });
+
+  assert.equal(status, 200);
+  assert.equal(body.tdsCategory, 'professional_fee');
+  assert.equal(body.categorySource, 'human');
+  assert.ok(body.categoryConfirmedBy, 'anonymous classification is worse than none');
+  // Confirming does not itself compute anything, and says so rather than
+  // leaving the reviewer to wonder why no figure appeared.
+  assert.match(body.note, /Run reconciliation again/);
+});
+
+run('once confirmed, reconciliation computes the TDS deterministically', async () => {
+  const { body: result } = await json('POST', `/periods/${periodId}/reconcile`, { token });
+  assert.ok(result.tdsComputed >= 1, 'a confirmed classification must produce a figure');
+
+  const { body: txns } = await json('GET', `/periods/${periodId}/transactions`, { token });
+  const classified = txns.find((t) => t.tdsCategory === 'professional_fee');
+
+  assert.ok(Number.isInteger(classified.tdsPaisa), 'TDS is now a real figure');
+  // 15% under Sec. 88(1) — computed by domain/tax.js, never by the API layer.
+  assert.equal(classified.tdsPaisa, Math.round(classified.netPaisa * 0.15));
+});
+
+run('a service contract below the annual threshold correctly withholds nothing', async () => {
+  // Worth asserting explicitly, because zero here is a RESULT, not a gap. A
+  // single Rs. 15,000 bill is under the Rs. 50,000 Sec. 89 threshold, and
+  // withholding on it would be wrong. My first version of the test above
+  // assumed 1.5% always applies and failed — the code was right.
+  const { body: txns } = await json('GET', `/periods/${periodId}/transactions`, { token });
+  const target = txns.find((t) => t.source === 'ledger' && !t.tdsCategory);
+
+  await json('PATCH', `/transactions/${target.id}/category`, {
+    token,
+    body: { category: 'service_contract' },
+  });
+  await json('POST', `/periods/${periodId}/reconcile`, { token });
+
+  const { body: recomputed } = await json('GET', `/periods/${periodId}/transactions`, { token });
+  const contract = recomputed.find((t) => t.id === target.id);
+
+  assert.equal(contract.tdsPaisa, 0, 'below the threshold means nothing is due');
+  assert.notEqual(contract.tdsPaisa, null, 'but it HAS been computed — that is the difference');
+});
+
+run('an unknown category is refused with the valid ones listed', async () => {
+  const { body: txns } = await json('GET', `/periods/${periodId}/transactions`, { token });
+  const target = txns.find((t) => t.source === 'ledger');
+
+  const { status, body } = await json('PATCH', `/transactions/${target.id}/category`, {
+    token,
+    body: { category: 'creative_accounting' },
+  });
+
+  assert.equal(status, 400);
+  assert.equal(body.error.code, 'unknown_category');
+  assert.match(body.error.message, /rent, professional_fee/);
+});
+
+run("another firm cannot classify this firm's transaction", async () => {
+  const stranger = await json('POST', '/auth/register', {
+    body: {
+      firmName: 'Rival Classifiers',
+      fullName: 'Someone Else',
+      email: 'rival-tds@example.com',
+      password: 'another-sufficiently-long-pw',
+    },
+  });
+  const { body: txns } = await json('GET', `/periods/${periodId}/transactions`, { token });
+
+  const { status } = await json('PATCH', `/transactions/${txns[0].id}/category`, {
+    token: stranger.body.accessToken,
+    body: { category: 'rent' },
+  });
+  assert.equal(status, 404, "another firm's transaction must be invisible");
+});
+
+run('classification decisions are written to the audit trail', async () => {
+  const rows = fixture.psql(['-tA', '-c',
+    "SELECT action FROM audit_log WHERE action = 'confirm_category'"]);
+  assert.ok(rows.trim().length > 0, 'who classified a payment must be recoverable');
+});
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 

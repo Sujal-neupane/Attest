@@ -78,6 +78,29 @@ router.get(
 );
 
 // ---------------------------------------------------------------------------
+// TDS classification — the second human-in-the-loop gate
+// ---------------------------------------------------------------------------
+
+router.get('/tds-categories', requireAuth, (_req, res) => {
+  res.json(reviewService.tdsCategories());
+});
+
+router.patch(
+  '/transactions/:id/category',
+  requireAuth,
+  // A reviewer's whole job is deciding things like this.
+  requireRole('admin', 'preparer', 'reviewer'),
+  asyncHandler(async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    const { category } = z
+      .object({ category: z.string().min(1, 'Choose a category.') })
+      .parse(req.body);
+
+    res.json(await reviewService.confirmCategory(req.user, id, category, requestContext(req)));
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 

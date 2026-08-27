@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="#status"><img alt="status" src="https://img.shields.io/badge/status-in%20development-9A6100"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-321%20passing-2F7A6F">
+  <img alt="tests" src="https://img.shields.io/badge/tests-342%20passing-2F7A6F">
   <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-2F7A6F">
   <img alt="postgres" src="https://img.shields.io/badge/postgres-16-2F7A6F">
 </p>
@@ -119,6 +119,19 @@ amount within a settlement window, then fuzzy amount and party name — so a wea
 match can never steal a counterpart an exact match would have claimed. When two
 candidates tie, it reports the ambiguity instead of picking one.
 [`domain/reconciliation.js`](backend/src/domain/reconciliation.js)
+
+**TDS is computed only on a classification a human has confirmed.**
+An AI-proposed category sits on the transaction as a *proposal* and produces no
+figure at all. Confirming it is a separate, recorded act — `category_source`
+and `category_confirmed_by` are stored, so "who decided this was rent" has an
+answer months later. Where nothing is confirmed the figure is `null`, never
+zero: null means *nobody has decided*, zero means *decided, and none is due*,
+and writing the wrong one understates a return with nothing looking wrong.
+
+The Sec. 89 threshold accumulates across a payee's bills in date order rather
+than being judged per invoice — two Rs. 30,000 payments to one supplier are
+below the threshold individually and above it together, which is exactly the
+arrangement the rule exists to catch.
 
 **What the client's books SAY is stored separately from what the engine COMPUTES.**
 A register stating Rs. 1,000 of VAT on a Rs. 10,000 taxable sale is wrong by
@@ -256,7 +269,7 @@ npm --prefix backend run test:db
 
 ## Status
 
-Built and tested — **321 tests passing** (288 backend, 21 frontend, 12 database):
+Built and tested — **342 tests passing** (309 backend, 21 frontend, 12 database):
 
 - [x] Deterministic financial core — money, VAT, TDS, reconciliation, anomalies (41)
 - [x] Database schema with row-level security, append-only audit log (12)
@@ -266,7 +279,8 @@ Built and tested — **321 tests passing** (288 backend, 21 frontend, 12 databas
 - [x] Encrypted document storage and a Postgres-backed job queue (28)
 - [x] Upload pipeline — file → encrypted store → worker → ledger (28)
 - [x] Sales and purchase register import (14)
-- [x] Review engine — reconcile, compute, flag, resolve, VAT summary (18)
+- [x] Review engine — reconcile, compute VAT and TDS, flag, resolve (34)
+- [x] TDS classification: AI proposes, a human confirms, the engine computes (21)
 - [x] CI on every push: unit tests, database tests, lint, dependency audit
 - [x] Brand and design system
 

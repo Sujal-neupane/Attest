@@ -117,6 +117,10 @@ async function insertTransactions(client, rows) {
       // What the client's books SAY — never overwritten by the tax engine.
       'reported_net_paisa', 'reported_vat_paisa', 'vat_applicable',
       'party_pan', 'bs_date_label',
+      // The classification, and WHO decided it. "Who said this was rent" is
+      // exactly the question an auditor asks, so the answer is stored rather
+      // than inferred later.
+      'tds_category', 'category_source',
     ],
     rows,
     toValues: (row) => [
@@ -126,6 +130,7 @@ async function insertTransactions(client, rows) {
       row.amountPaisa, row.direction, row.sourceRef ?? {},
       row.reportedNetPaisa ?? null, row.reportedVatPaisa ?? null,
       row.vatApplicable ?? true, row.partyPan ?? null, row.bsDateLabel ?? null,
+      row.tdsCategory ?? null, row.categorySource ?? null,
     ],
     returning: 'id, txn_date AS "txnDate", amount_paisa AS "amountPaisa"',
   });
@@ -138,6 +143,9 @@ async function listTransactionsForPeriod(client, fiscalPeriodId, { source, limit
             t.amount_paisa AS "amountPaisa", t.direction,
             t.net_paisa AS "netPaisa", t.vat_paisa AS "vatPaisa",
             t.tds_paisa AS "tdsPaisa", t.category,
+            t.tds_category AS "tdsCategory",
+            t.category_source AS "categorySource",
+            t.category_confirmed_by AS "categoryConfirmedBy",
             t.reported_net_paisa AS "reportedNetPaisa",
             t.reported_vat_paisa AS "reportedVatPaisa",
             t.vat_applicable AS "vatApplicable",

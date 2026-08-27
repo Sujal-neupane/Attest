@@ -42,6 +42,7 @@ export default function Review() {
   const [showResolved, setShowResolved] = useState(false);
   const [tab, setTab] = useState('findings');
   const [transactions, setTransactions] = useState(null);
+  const [categories, setCategories] = useState([]);
 
   const listRef = useRef(null);
 
@@ -76,7 +77,28 @@ export default function Review() {
   useEffect(() => {
     if (tab !== 'transactions' || transactions) return;
     api.transactions(periodId).then(setTransactions).catch((err) => setError(err.message));
+    api.tdsCategories().then(setCategories).catch(() => {});
   }, [tab, transactions, periodId]);
+
+  /**
+   * Record a classification.
+   *
+   * The list is refetched rather than patched in place: confirming a category
+   * does not compute the TDS — reconciliation does — so showing an optimistic
+   * figure here would be inventing one.
+   */
+  const classify = useCallback(
+    async (transactionId, category) => {
+      if (!category) return;
+      try {
+        await api.confirmCategory(transactionId, category);
+        setTransactions(await api.transactions(periodId));
+      } catch (err) {
+        setError(err.message);
+      }
+    },
+    [periodId],
+  );
 
   const visible = useMemo(
     () => (showResolved ? flags : flags.filter((f) => f.status === 'open')),
@@ -239,7 +261,11 @@ export default function Review() {
         </div>
 
         {tab === 'transactions' ? (
-          <TransactionTable transactions={transactions} />
+          <TransactionTable
+            transactions={transactions}
+            categories={categories}
+            onClassify={classify}
+          />
         ) : (
         <>
         <div className="review__toolbar">

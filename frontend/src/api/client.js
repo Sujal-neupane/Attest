@@ -166,6 +166,14 @@ export const api = {
     request(`/periods/${periodId}/flags${status ? `?status=${status}` : ''}`),
   resolveFlag: (flagId, body) => request(`/flags/${flagId}`, { method: 'PATCH', body }),
   vatSummary: (periodId) => request(`/periods/${periodId}/vat-summary`),
+
+  // TDS classification — the second human-in-the-loop gate.
+  tdsCategories: () => request('/tds-categories'),
+  confirmCategory: (transactionId, category) =>
+    request(`/transactions/${transactionId}/category`, {
+      method: 'PATCH',
+      body: { category },
+    }),
 };
 
 /**

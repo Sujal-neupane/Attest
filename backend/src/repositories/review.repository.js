@@ -195,7 +195,44 @@ async function updateComputedTax(client, rows) {
   return rowCount;
 }
 
+/**
+ * Record a human's classification decision.
+ *
+ * Sets category_confirmed_by, which is the flag the TDS computation reads. Until
+ * that column is populated no tax is deducted on the entry, whatever an AI or a
+ * rule proposed.
+ */
+async function confirmCategory(client, { transactionId, category, userId }) {
+  const { rows } = await client.query(
+    `UPDATE transactions
+        SET tds_category = $2,
+            category_source = 'human',
+            category_confirmed_by = $3
+      WHERE id = $1
+      RETURNING id, party, invoice_number AS "invoiceNumber",
+                tds_category AS "tdsCategory",
+                category_source AS "categorySource",
+                category_confirmed_by AS "categoryConfirmedBy"`,
+    [transactionId, category, userId],
+  );
+  return rows[0] || null;
+}
+
+async function findTransactionById(client, id) {
+  const { rows } = await client.query(
+    `SELECT id, fiscal_period_id AS "fiscalPeriodId", party,
+            invoice_number AS "invoiceNumber", tds_category AS "tdsCategory",
+            category_source AS "categorySource",
+            category_confirmed_by AS "categoryConfirmedBy"
+       FROM transactions WHERE id = $1`,
+    [id],
+  );
+  return rows[0] || null;
+}
+
 module.exports = {
+  confirmCategory,
+  findTransactionById,
   clearDerivedResults,
   resolvedFlagKeys,
   insertFlags,

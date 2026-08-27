@@ -19,7 +19,7 @@ const audit = require('../repositories/audit.repository');
 const clients = require('../repositories/client.repository');
 const { reconcile } = require('../domain/reconciliation');
 const { detectAnomalies, SEVERITY } = require('../domain/anomalies');
-const { computeVat, summarisePeriod } = require('../domain/tax');
+const { computeVat, computeTds, summarisePeriod, TDS_RATES } = require('../domain/tax');
 const { format } = require('../domain/money');
 const { ApiError } = require('../middleware/errorHandler');
 
@@ -121,20 +121,21 @@ async function runReconciliation(user, fiscalPeriodId, context = {}) {
         vatInclusive: !hasReportedNet,
         vatApplicable: txn.vatApplicable !== false,
       });
-      return {
-        id: txn.id,
-        netPaisa: vat.netPaisa,
-        vatPaisa: vat.vatPaisa,
-        // TDS needs a confirmed category, which nothing supplies yet. Left null
-        // rather than defaulted to zero: null means "not computed", zero would
-        // mean "computed, and none is due", and only one of those is true.
-        tdsPaisa: null,
-        txn,
-        vat,
-      };
+      return { id: txn.id, netPaisa: vat.netPaisa, vatPaisa: vat.vatPaisa, txn, vat };
     });
 
-    await review.updateComputedTax(db, computed);
+    // ---- TDS ------------------------------------------------------------
+    //
+    // Computed ONLY where a human has confirmed the classification. A category
+    // an AI proposed, or a rule guessed, is a suggestion — and deducting tax on
+    // a suggestion is precisely the kind of thing this product exists not to do.
+    //
+    // Where there is no confirmed category the figure stays NULL, never zero:
+    // null means "not computed", zero means "computed, and none is due", and
+    // only one of those is honest about a classification nobody has made.
+    const withTds = attachTds(computed);
+
+    await review.updateComputedTax(db, withTds);
 
     // ---- Flag -----------------------------------------------------------
     const withComputed = all.map((txn) => {
@@ -149,6 +150,7 @@ async function runReconciliation(user, fiscalPeriodId, context = {}) {
 
     const vatFlags = flagVatDiscrepancies(computed);
     const unmatchedLedgerFlags = flagUnmatchedLedger(matching, ledger);
+    const categoryFlags = flagUnconfirmedCategories(ledger);
 
     const { supersededFlags } = await review.clearDerivedResults(db, fiscalPeriodId);
 
@@ -156,7 +158,7 @@ async function runReconciliation(user, fiscalPeriodId, context = {}) {
     // Re-raising a resolved finding on every run is how a review tool trains
     // its users to click through without reading.
     const alreadyDecided = await review.resolvedFlagKeys(db, fiscalPeriodId);
-    const fresh = [...ruleFlags, ...vatFlags, ...unmatchedLedgerFlags].filter(
+    const fresh = [...ruleFlags, ...vatFlags, ...unmatchedLedgerFlags, ...categoryFlags].filter(
       (f) => !alreadyDecided.has(`${f.type}::${f.transactionId ?? ''}`),
     );
 
@@ -194,6 +196,7 @@ async function runReconciliation(user, fiscalPeriodId, context = {}) {
         flagsRaised: fresh.length,
         flagsSuperseded: supersededFlags,
         flagsSkippedAsAlreadyDecided: alreadyDecided.size,
+        tdsComputed: withTds.filter((c) => c.tdsPaisa !== null).length,
       },
       ip: context.ip,
       userAgent: context.userAgent,
@@ -205,10 +208,92 @@ async function runReconciliation(user, fiscalPeriodId, context = {}) {
       flagsSuperseded: supersededFlags,
       flagsSkipped: alreadyDecided.size,
       transactionsComputed: computed.length,
+      tdsComputed: withTds.filter((c) => c.tdsPaisa !== null).length,
+      tdsAwaitingConfirmation: ledger.filter(
+        (t) => t.tdsCategory && t.categoryConfirmedBy === null,
+      ).length,
       unmatchedBank: matching.unmatchedBank.length,
       unmatchedLedger: matching.unmatchedLedger.length,
     };
   });
+}
+
+/**
+ * Compute TDS for every entry whose category a human has confirmed.
+ *
+ * The Sec. 89 threshold is cumulative across the fiscal year, not per bill, so
+ * payments to the same payee are accumulated in date order and each one is told
+ * what came before it. Computing each bill in isolation would let a supplier
+ * paid Rs. 30,000 twice escape TDS entirely — which is exactly the arrangement
+ * the threshold exists to catch.
+ */
+function attachTds(computed) {
+  const priorByPayee = new Map();
+
+  return [...computed]
+    .sort((a, b) => a.txn.txnDate.localeCompare(b.txn.txnDate))
+    .map((entry) => {
+      const { txn } = entry;
+
+      const confirmed = txn.tdsCategory && txn.categoryConfirmedBy;
+      if (!confirmed || !TDS_RATES[txn.tdsCategory]) {
+        return { ...entry, tdsPaisa: null };
+      }
+
+      const payee = (txn.party || '').trim().toLowerCase();
+      const key = `${payee}::${txn.tdsCategory}`;
+      const priorPaymentsPaisa = priorByPayee.get(key) ?? 0;
+
+      const tds = computeTds({
+        netPaisa: entry.netPaisa,
+        category: txn.tdsCategory,
+        priorPaymentsPaisa,
+      });
+
+      priorByPayee.set(key, priorPaymentsPaisa + entry.netPaisa);
+
+      return { ...entry, tdsPaisa: tds.tdsPaisa, tds };
+    });
+}
+
+/**
+ * A classification nobody has confirmed is a question, not a fact.
+ *
+ * Raised as a flag so the accountant is asked rather than the figure being
+ * quietly computed on a machine's guess — or quietly omitted, which would leave
+ * a return understating what was withheld.
+ */
+function flagUnconfirmedCategories(ledger) {
+  return ledger
+    .filter((txn) => txn.tdsCategory && !txn.categoryConfirmedBy)
+    .map((txn) => ({
+      type: 'anomaly',
+      severity: SEVERITY.MEDIUM,
+      transactionId: txn.id,
+      relatedTransactionIds: [],
+      message:
+        `${txn.invoiceNumber ? `Invoice ${txn.invoiceNumber}` : 'An entry'} on ` +
+        `${txn.txnDate}${txn.party ? ` (${txn.party})` : ''} was classified as ` +
+        `"${TDS_RATES[txn.tdsCategory]?.label ?? txn.tdsCategory}" by ` +
+        `${txn.categorySource === 'ai' ? 'AI' : 'a rule'}, but nobody has confirmed it. ` +
+        `No TDS has been computed for it.`,
+      suggestion:
+        'Confirm or change the classification. TDS is only computed once a ' +
+        'person has decided what the payment is — a deduction made on a ' +
+        'suggestion is not one anybody can defend.',
+      aiDrafted: false,
+      evidence: [
+        {
+          transactionId: txn.id,
+          date: txn.txnDate,
+          amountPaisa: txn.amountPaisa,
+          proposedCategory: txn.tdsCategory,
+          proposedBy: txn.categorySource,
+          documentId: txn.documentId,
+          sourceRef: txn.sourceRef,
+        },
+      ],
+    }));
 }
 
 /**
@@ -383,6 +468,74 @@ async function resolveFlag(user, flagId, { status, note }, context = {}) {
 }
 
 /**
+ * Confirm — or correct — how a payment is classified for TDS.
+ *
+ * This is the second human-in-the-loop gate, and the one that turns a
+ * suggestion into a figure. Until someone calls this, an AI's proposed category
+ * sits on the transaction as a proposal and no tax is computed from it.
+ */
+async function confirmCategory(user, transactionId, category, context = {}) {
+  if (!TDS_RATES[category]) {
+    throw new ApiError(
+      400,
+      `"${category}" is not a TDS category Attest knows. Valid categories: ` +
+        `${Object.keys(TDS_RATES).join(', ')}.`,
+      { code: 'unknown_category' },
+    );
+  }
+
+  return withFirm(user.firmId, async (db) => {
+    const existing = await review.findTransactionById(db, transactionId);
+    if (!existing) {
+      throw new ApiError(404, 'That transaction was not found.', { code: 'not_found' });
+    }
+
+    const updated = await review.confirmCategory(db, {
+      transactionId,
+      category,
+      userId: user.id,
+    });
+
+    await audit.record(db, {
+      firmId: user.firmId,
+      userId: user.id,
+      action: 'confirm_category',
+      entityType: 'transaction',
+      entityId: transactionId,
+      detail: {
+        fiscalPeriodId: existing.fiscalPeriodId,
+        from: existing.tdsCategory,
+        to: category,
+        // Whether a person accepted a machine's suggestion or overrode it is
+        // itself worth recording — it is how you find out later that the
+        // classifier is wrong about a whole class of payment.
+        previousSource: existing.categorySource,
+        overrodeSuggestion: Boolean(existing.tdsCategory) && existing.tdsCategory !== category,
+      },
+      ip: context.ip,
+      userAgent: context.userAgent,
+    });
+
+    return {
+      ...updated,
+      // Said plainly: confirming a category does not itself compute anything.
+      note:
+        'Classification recorded. Run reconciliation again to compute TDS with ' +
+        'this classification applied.',
+    };
+  });
+}
+
+/** The categories a person may choose from, with their legal basis. */
+function tdsCategories() {
+  return Object.entries(TDS_RATES).map(([key, rule]) => ({
+    category: key,
+    label: rule.label,
+    section: rule.section,
+  }));
+}
+
+/**
  * The VAT summary.
  *
  * Built from the COMPUTED figures only. A transaction whose tax has not been
@@ -414,6 +567,9 @@ async function vatSummary(user, fiscalPeriodId) {
     );
 
     const openFlags = await review.listFlags(db, fiscalPeriodId, { status: 'open' });
+    const awaitingCategory = ledger.filter(
+      (t) => t.tdsCategory && !t.categoryConfirmedBy,
+    ).length;
 
     return {
       period: {
@@ -425,13 +581,16 @@ async function vatSummary(user, fiscalPeriodId) {
       },
       ...summary,
       uncomputedCount: uncomputed.length,
+      // Surfaced separately from open flags: an unconfirmed classification is a
+      // reason the TDS total is incomplete, not just another finding.
+      tdsAwaitingConfirmation: awaitingCategory,
       openFlagCount: openFlags.length,
       highSeverityOpen: openFlags.filter((f) => f.severity === 'high').length,
       // Stated rather than implied. The software prepares; it does not certify,
       // and a summary that looked final would be the one place this product
       // could mislead the person relying on it.
       status:
-        uncomputed.length > 0
+        uncomputed.length > 0 || awaitingCategory > 0
           ? 'incomplete'
           : openFlags.length > 0
             ? 'pending_review'
@@ -450,6 +609,8 @@ module.exports = {
   listFlags,
   listReconciliations,
   resolveFlag,
+  confirmCategory,
+  tdsCategories,
   vatSummary,
-  _internals: { flagVatDiscrepancies, flagUnmatchedLedger },
+  _internals: { flagVatDiscrepancies, flagUnmatchedLedger, attachTds, flagUnconfirmedCategories },
 };

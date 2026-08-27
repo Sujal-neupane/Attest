@@ -207,6 +207,11 @@ function toTransaction(draft, context) {
     amountPaisa: signed,
     direction: signed < 0 ? 'debit' : 'credit',
 
+    // The model's proposal, recorded AS a proposal. TDS is not computed from it
+    // until an accountant confirms the classification.
+    tdsCategory: draft.suggestedTdsCategory,
+    categorySource: draft.suggestedTdsCategory ? 'ai' : null,
+
     // Reported by the document, exactly as a register's figures are. The tax
     // engine computes its own and flags any difference — an invoice that
     // misstates its own VAT is as much a finding as a register that does.

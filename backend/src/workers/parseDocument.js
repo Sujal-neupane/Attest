@@ -141,6 +141,8 @@ async function handleParseDocument(job, { store, logger = console }) {
       vatApplicable: txn.vatApplicable,
       partyPan: txn.partyPan,
       bsDateLabel: txn.bsDate,
+      tdsCategory: txn.tdsCategory,
+      categorySource: txn.categorySource,
     }));
 
     await documents.insertTransactions(db, toInsert);
