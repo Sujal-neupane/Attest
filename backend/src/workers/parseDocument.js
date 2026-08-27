@@ -21,6 +21,8 @@ const queue = require('../services/queue');
 const { withFirm } = require('../config/db');
 const { parseBankStatement } = require('../services/parsing/bankStatement');
 const { parseRegister } = require('../services/parsing/register');
+const { parseInvoice, InvoiceError } = require('../services/parsing/invoice');
+const aiClient = require('../services/ai/client');
 const { CsvError } = require('../services/parsing/csv');
 const { ColumnMapError } = require('../services/parsing/columnMap');
 const { DateError } = require('../utils/dates');
@@ -36,7 +38,17 @@ const { MoneyError } = require('../domain/money');
  * accountant's time before showing them a message that was available
  * immediately.
  */
-const PERMANENT_FAILURES = [CsvError, ColumnMapError, DateError, NepaliCalendarError, MoneyError];
+const PERMANENT_FAILURES = [
+  CsvError,
+  ColumnMapError,
+  DateError,
+  NepaliCalendarError,
+  MoneyError,
+  // An unreadable scan does not become readable on the third attempt, and no
+  // amount of waiting produces an API key.
+  InvoiceError,
+  aiClient.AiUnavailableError,
+];
 
 function isPermanent(error) {
   return PERMANENT_FAILURES.some((Type) => error instanceof Type);
@@ -94,8 +106,12 @@ async function handleParseDocument(job, { store, logger = console }) {
     return rows[0];
   });
 
-  const result = parseDocumentByType(document, text, {
+  const result = await parseDocumentByType(document, text, contents, {
     documentId,
+    filename: document.filename,
+    firmId,
+    clientId: document.clientId,
+    fiscalPeriodId: document.fiscalPeriodId,
     periodStart: period?.startDate,
     periodEnd: period?.endDate,
   });
@@ -163,7 +179,11 @@ async function handleParseDocument(job, { store, logger = console }) {
   };
 }
 
-function parseDocumentByType(document, text, context) {
+/**
+ * Async because the invoice path calls a model; the CSV paths stay synchronous
+ * underneath and are simply awaited.
+ */
+async function parseDocumentByType(document, text, contents, context) {
   switch (document.type) {
     case 'bank_statement':
       return parseBankStatement(text, context);
@@ -171,13 +191,9 @@ function parseDocumentByType(document, text, context) {
     case 'purchase_register':
       return parseRegister(text, document.type, context);
     case 'invoice':
-      throw Object.assign(
-        new Error(
-          `Attest cannot parse an individual invoice yet — that path needs the ` +
-            `AI extraction step. Upload the sales or purchase register instead.`,
-        ),
-        { permanent: true },
-      );
+      // Throws AiUnavailableError with an explanation if no key is configured,
+      // which the accountant sees on the document rather than as a crash.
+      return parseInvoice(contents, context, aiClient.getClient());
     default:
       throw Object.assign(new Error(`Unknown document type: ${document.type}`), {
         permanent: true,

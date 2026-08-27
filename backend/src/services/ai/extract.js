@@ -176,17 +176,26 @@ async function extractInvoice(
     };
   }
 
-  const extraction = finalMessage.parsed_output;
-  if (!extraction) {
+  // ─── Parsing the structured output ──────────────────────────────────────
+  //
+  // `parsed_output` is populated by client.messages.parse(), NOT by the tool
+  // runner — the runner returns a plain Message and leaves the JSON in a text
+  // block. Reading `finalMessage.parsed_output` here returned undefined on
+  // every call, which would have turned every extraction into "unparseable".
+  //
+  // A stub client cannot catch that, because a stub returns whatever field the
+  // author expects. Running the real SDK against a local server did.
+  const extraction = parseStructuredOutput(finalMessage);
+  if (!extraction.ok) {
     return {
       status: 'unparseable',
-      reason: 'The model did not return the structured fields that were asked for.',
+      reason: extraction.reason,
       toolCalls: calls,
     };
   }
 
   // ---- The gate -----------------------------------------------------------
-  const grounding = verifyExtraction(documentText, extraction, {
+  const grounding = verifyExtraction(documentText, extraction.value, {
     amountFields: AMOUNT_FIELDS,
   });
 
@@ -198,18 +207,63 @@ async function extractInvoice(
         `${grounding.ungrounded.length} of ${grounding.checked} extracted values could ` +
         `not be found in the document.`,
       ungrounded: grounding.ungrounded,
-      extraction,
+      extraction: extraction.value,
       toolCalls: calls,
     };
   }
 
   return {
     status: 'extracted',
-    extraction,
+    extraction: extraction.value,
     grounding,
     toolCalls: calls,
     usage: finalMessage.usage,
   };
+}
+
+/**
+ * Pull the structured object out of the final message and validate it.
+ *
+ * Validated against the same Zod schema that was sent, so a response missing a
+ * field or carrying a number where a string was asked for is rejected here
+ * rather than surfacing later as a confusing grounding failure.
+ */
+function parseStructuredOutput(message) {
+  // A tool-runner message may already carry it if the SDK gains that behaviour;
+  // preferring it costs nothing and keeps this working if it does.
+  if (message.parsed_output) return { ok: true, value: message.parsed_output };
+
+  const text = (message.content ?? [])
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text)
+    .join('')
+    .trim();
+
+  if (!text) {
+    return { ok: false, reason: 'The model returned no structured fields at all.' };
+  }
+
+  let raw;
+  try {
+    // Never string-match a model's JSON — escaping varies between models.
+    raw = JSON.parse(text);
+  } catch {
+    return {
+      ok: false,
+      reason: 'The model\'s reply was not valid JSON, so no fields could be read from it.',
+    };
+  }
+
+  const validated = ExtractionSchema.safeParse(raw);
+  if (!validated.success) {
+    const problems = validated.error.issues
+      .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+      .slice(0, 5)
+      .join('; ');
+    return { ok: false, reason: `The extracted fields did not match the expected shape — ${problems}` };
+  }
+
+  return { ok: true, value: validated.data };
 }
 
 /**
@@ -262,6 +316,7 @@ function toTransactionDraft(extraction, { documentId, sourceRef = {} }) {
 
 module.exports = {
   MODEL,
+  parseStructuredOutput,
   ExtractionSchema,
   SYSTEM_PROMPT,
   AMOUNT_FIELDS,

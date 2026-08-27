@@ -55,7 +55,12 @@ const schema = z.object({
   STORAGE_FORCE_PATH_STYLE: z.enum(['true', 'false']).default('false'),
   // Opt-in second layer, e.g. 'AES256'. Not every provider accepts it.
   STORAGE_SERVER_SIDE_ENCRYPTION: z.string().optional(),
+  // Optional: without it, everything except AI invoice extraction works, and
+  // an uploaded invoice fails with a message saying exactly that.
   ANTHROPIC_API_KEY: z.string().optional(),
+  // Points the SDK at a different host. Used by the integration test to run the
+  // real client against a local server; leave unset in every real deployment.
+  ANTHROPIC_BASE_URL: z.string().optional(),
 });
 
 const parsed = schema.safeParse(process.env);
