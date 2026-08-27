@@ -410,6 +410,15 @@ run('a party name that looks like a formula cannot execute in Excel', async () =
       `${hostile} must be neutralised before it reaches a spreadsheet`,
     );
   }
+  // But a negative AMOUNT is not a formula, and must stay a number.
+  // Escaping it turns the column into text and the accountant's total silently
+  // stops summing — the guard breaking the one thing they opened the file for.
+  assert.equal(_internals.csvField('-5650.00'), '-5650.00');
+  assert.equal(_internals.csvField('-1'), '-1');
+  assert.equal(_internals.csvField('1234.56'), '1234.56');
+  // A value that only starts like a number is still neutralised.
+  assert.ok(_internals.csvField('-1+cmd').startsWith("'"));
+
   // A legitimate value is left exactly as written.
   assert.equal(_internals.csvField('Sharma Traders'), 'Sharma Traders');
   assert.equal(_internals.csvField('Sharma "Traders", Lalitpur'), '"Sharma ""Traders"", Lalitpur"');

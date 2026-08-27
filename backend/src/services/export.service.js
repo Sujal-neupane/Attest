@@ -35,7 +35,13 @@ function csvField(value) {
   if (value === null || value === undefined) return '';
   let text = String(value);
 
-  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  // A plain number is never a formula, and every money column in these exports
+  // is signed. Escaping "-5650.00" produced "'-5650.00", which Excel reads as
+  // text — so the accountant's total column silently stopped summing, and the
+  // guard meant to protect them broke the one thing they came for.
+  const isPlainNumber = /^-?\d+(\.\d+)?$/.test(text);
+
+  if (!isPlainNumber && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
 
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
