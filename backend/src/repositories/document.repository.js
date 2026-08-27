@@ -112,6 +112,9 @@ async function insertTransactions(client, rows) {
     'firm_id', 'client_id', 'fiscal_period_id', 'document_id', 'source', 'kind',
     'txn_date', 'description', 'party', 'invoice_number', 'reference',
     'amount_paisa', 'direction', 'source_ref',
+    // What the client's books SAY — never overwritten by the tax engine.
+    'reported_net_paisa', 'reported_vat_paisa', 'vat_applicable',
+    'party_pan', 'bs_date_label',
   ];
 
   const values = [];
@@ -122,6 +125,8 @@ async function insertTransactions(client, rows) {
       row.source, row.kind, row.txnDate, row.description ?? '',
       row.party ?? null, row.invoiceNumber ?? null, row.reference ?? null,
       row.amountPaisa, row.direction, row.sourceRef ?? {},
+      row.reportedNetPaisa ?? null, row.reportedVatPaisa ?? null,
+      row.vatApplicable ?? true, row.partyPan ?? null, row.bsDateLabel ?? null,
     );
     return `(${columns.map((_, c) => `$${base + c + 1}`).join(', ')})`;
   });
@@ -142,6 +147,10 @@ async function listTransactionsForPeriod(client, fiscalPeriodId, { source, limit
             t.amount_paisa AS "amountPaisa", t.direction,
             t.net_paisa AS "netPaisa", t.vat_paisa AS "vatPaisa",
             t.tds_paisa AS "tdsPaisa", t.category,
+            t.reported_net_paisa AS "reportedNetPaisa",
+            t.reported_vat_paisa AS "reportedVatPaisa",
+            t.vat_applicable AS "vatApplicable",
+            t.party_pan AS "partyPan", t.bs_date_label AS "bsDateLabel",
             t.source_ref AS "sourceRef", t.document_id AS "documentId",
             d.filename AS "documentFilename"
        FROM transactions t

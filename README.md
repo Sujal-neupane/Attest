@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="#status"><img alt="status" src="https://img.shields.io/badge/status-in%20development-9A6100"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-192%20passing-2F7A6F">
+  <img alt="tests" src="https://img.shields.io/badge/tests-224%20passing-2F7A6F">
   <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-2F7A6F">
   <img alt="postgres" src="https://img.shields.io/badge/postgres-16-2F7A6F">
 </p>
@@ -120,6 +120,20 @@ match can never steal a counterpart an exact match would have claimed. When two
 candidates tie, it reports the ambiguity instead of picking one.
 [`domain/reconciliation.js`](backend/src/domain/reconciliation.js)
 
+**What the client's books SAY is stored separately from what the engine COMPUTES.**
+A register stating Rs. 1,000 of VAT on a Rs. 10,000 taxable sale is wrong by
+Rs. 300, and that discrepancy is precisely what an accountant is paid to find.
+Writing the computed figure over the reported one would make the two agree and
+the error vanish — so `reported_vat_paisa` and `vat_paisa` are different
+columns, and their difference becomes a flag.
+
+**Re-running the review never re-asks a question already answered.**
+A flag an accountant has accepted or dismissed survives a re-run with its note
+and attribution intact. Stale open flags are marked `superseded` — a status of
+its own, not `dismissed`, because dismissed means a person decided and the
+schema rightly demands to know who. Recording a machine action as a human one
+is the kind of false accountability the audit trail exists to prevent.
+
 **Anomaly severity is deliberately conservative.**
 A false "high" teaches the reviewer to dismiss everything, which is the failure
 mode that kills tools like this. Large round numbers are flagged `low`, and the
@@ -209,7 +223,7 @@ npm --prefix backend run test:db
 
 ## Status
 
-Built and tested — **192 tests passing** (180 Node, 12 database):
+Built and tested — **224 tests passing** (212 Node, 12 database):
 
 - [x] Deterministic financial core — money, VAT, TDS, reconciliation, anomalies (41)
 - [x] Database schema with row-level security, append-only audit log (12)
@@ -218,13 +232,14 @@ Built and tested — **192 tests passing** (180 Node, 12 database):
 - [x] API — auth, clients, fiscal periods, tenant isolation end to end (20)
 - [x] Encrypted document storage and a Postgres-backed job queue (28)
 - [x] Upload pipeline — file → encrypted store → worker → ledger (28)
+- [x] Sales and purchase register import (14)
+- [x] Review engine — reconcile, compute, flag, resolve, VAT summary (18)
 - [x] CI on every push: unit tests, database tests, lint, dependency audit
 - [x] Brand and design system
 
 In progress:
 
-- [ ] Sales and purchase register import
-- [ ] Review sheet with source click-through
+- [ ] React review sheet with source click-through
 - [ ] LLM extraction with tool calling
 - [ ] Deploy, sample data, demo
 

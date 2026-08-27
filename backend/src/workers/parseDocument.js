@@ -20,6 +20,7 @@ const audit = require('../repositories/audit.repository');
 const queue = require('../services/queue');
 const { withFirm } = require('../config/db');
 const { parseBankStatement } = require('../services/parsing/bankStatement');
+const { parseRegister } = require('../services/parsing/register');
 const { CsvError } = require('../services/parsing/csv');
 const { ColumnMapError } = require('../services/parsing/columnMap');
 const { DateError } = require('../utils/dates');
@@ -119,6 +120,11 @@ async function handleParseDocument(job, { store, logger = console }) {
       amountPaisa: txn.amountPaisa,
       direction: txn.direction,
       sourceRef: txn.sourceRef,
+      reportedNetPaisa: txn.reportedNetPaisa,
+      reportedVatPaisa: txn.reportedVatPaisa,
+      vatApplicable: txn.vatApplicable,
+      partyPan: txn.partyPan,
+      bsDateLabel: txn.bsDate,
     }));
 
     await documents.insertTransactions(db, toInsert);
@@ -163,11 +169,12 @@ function parseDocumentByType(document, text, context) {
       return parseBankStatement(text, context);
     case 'sales_register':
     case 'purchase_register':
+      return parseRegister(text, document.type, context);
     case 'invoice':
       throw Object.assign(
         new Error(
-          `Attest cannot parse a ${document.type.replace('_', ' ')} yet. ` +
-            `Bank statements are supported today.`,
+          `Attest cannot parse an individual invoice yet — that path needs the ` +
+            `AI extraction step. Upload the sales or purchase register instead.`,
         ),
         { permanent: true },
       );

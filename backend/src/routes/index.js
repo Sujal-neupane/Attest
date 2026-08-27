@@ -16,6 +16,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { healthcheck } = require('../config/db');
 const documentRoutes = require('./documents');
+const reviewRoutes = require('./review');
 
 const router = express.Router();
 
@@ -206,5 +207,8 @@ router.get(
 
 // Documents, pipeline status and parsed transactions.
 router.use(documentRoutes);
+
+// Reconciliation, flags, and the VAT summary.
+router.use(reviewRoutes);
 
 module.exports = router;

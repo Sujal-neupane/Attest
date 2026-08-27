@@ -1,0 +1,344 @@
+/**
+ * The review sheet, end to end over HTTP.
+ *
+ * Upload a bank statement AND the client's sales register, parse both,
+ * reconcile them, and work the resulting flags the way an accountant would.
+ * This is the journey the product exists for, so it is tested as a journey
+ * rather than as a set of endpoints.
+ */
+
+const test = require('node:test');
+const { before, after } = require('node:test');
+const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const testDb = require('./helpers/testDatabase');
+
+const available = testDb.isAvailable();
+const fixture = available ? testDb.setup('attest_review_test', 'attest_test_review') : null;
+if (available) testDb.applyTestEnv(fixture.url);
+
+if (!available) {
+  test('review API tests skipped — no database reachable', () => assert.ok(true));
+}
+
+const run = available ? test : test.skip;
+
+/**
+ * Deliberately constructed so the engine has something real to find:
+ *  - INV-001 and INV-002 are paid, and appear in the bank.
+ *  - INV-003 is unpaid: a ledger entry with no bank movement.
+ *  - INV-005 skips INV-004: a gap in the sales sequence.
+ *  - INV-005 states VAT of 1,000 on 10,000 taxable — wrong by 300.
+ *  - The bank shows a 5,650 payment to a supplier with no purchase bill.
+ */
+const BANK = [
+  'Date,Narration,Withdrawl,Deposit,Balance',
+  '16/07/2024,OPENING BALANCE,,,"1,00,000.00"',
+  '17/07/2024,IPS/FT FROM SHARMA TRADERS,,"11,300.00","1,11,300.00"',
+  '18/07/2024,IPS/FT FROM EVEREST RETAIL,,"22,600.00","1,33,900.00"',
+  '20/07/2024,CHQ 004521 PAID TO GURUNG HARDWARE,"5,650.00",,"1,28,250.00"',
+].join('\n');
+
+const SALES = [
+  'Date,Invoice No,Party Name,Taxable Amount,VAT',
+  '17/07/2024,INV-001,Sharma Traders,"10,000.00","1,300.00"',
+  '18/07/2024,INV-002,Everest Retail,"20,000.00","2,600.00"',
+  '19/07/2024,INV-003,Lalitpur Stores,"15,000.00","1,950.00"',
+  '22/07/2024,INV-005,Bhaktapur Supply,"10,000.00","1,000.00"',
+].join('\n');
+
+let server;
+let base;
+let db;
+let storeRoot;
+let store;
+let worker;
+let token;
+let periodId;
+
+before(async () => {
+  db = require('../src/config/db');
+  const storage = require('../src/services/storage');
+  const storageConfig = require('../src/config/storage');
+  worker = require('../src/workers/parseDocument');
+
+  storeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'attest-review-'));
+  store = storage.createLocalStorage({ root: storeRoot, key: crypto.randomBytes(32) });
+  storageConfig.override({ store, signer: storage.createSigner('review-test-secret'), root: storeRoot });
+
+  const { createApp } = require('../src/app');
+  server = createApp().listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+  base = `http://127.0.0.1:${server.address().port}/api`;
+
+  const registered = await json('POST', '/auth/register', {
+    body: {
+      firmName: 'Review Test Firm',
+      fullName: 'Sujal Neupane',
+      email: 'review@example.com',
+      password: 'a-sufficiently-long-password',
+    },
+  });
+  token = registered.body.accessToken;
+
+  const client = await json('POST', '/clients', {
+    token,
+    body: { name: 'Himalayan Traders Pvt Ltd', pan: '123456789' },
+  });
+  const period = await json('POST', `/clients/${client.body.id}/periods`, {
+    token,
+    body: { bsYear: 2081, bsMonth: 4 },
+  });
+  periodId = period.body.id;
+
+  await upload(BANK, 'bank.csv', 'bank_statement');
+  await upload(SALES, 'sales.csv', 'sales_register');
+  await drainQueue();
+});
+
+after(async () => {
+  server?.close();
+  await db?.close().catch(() => {});
+  if (storeRoot) fs.rmSync(storeRoot, { recursive: true, force: true });
+});
+
+async function json(method, url, { body, token: bearer } = {}) {
+  const res = await fetch(`${base}${url}`, {
+    method,
+    headers: {
+      'content-type': 'application/json',
+      ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  return { status: res.status, body: text ? JSON.parse(text) : null };
+}
+
+async function upload(contents, filename, type) {
+  const form = new FormData();
+  form.append('file', new Blob([contents], { type: 'text/csv' }), filename);
+  form.append('type', type);
+  const res = await fetch(`${base}/periods/${periodId}/documents`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}` },
+    body: form,
+  });
+  assert.equal(res.status, 202, await res.text());
+}
+
+async function drainQueue(limit = 20) {
+  for (let i = 0; i < limit; i++) {
+    const outcome = await worker.runOnce({ store, logger: {} });
+    if (outcome === null) return;
+    assert.equal(outcome.ok, true, outcome.error?.message);
+  }
+  throw new Error('queue never drained');
+}
+
+const flags = async () => (await json('GET', `/periods/${periodId}/flags`, { token })).body;
+
+run('both documents parsed into bank and ledger transactions', async () => {
+  const { body } = await json('GET', `/periods/${periodId}/transactions`, { token });
+  assert.equal(body.filter((t) => t.source === 'bank').length, 3);
+  assert.equal(body.filter((t) => t.source === 'ledger').length, 4);
+});
+
+run('reconciliation matches the paid invoices against the bank', async () => {
+  const { status, body } = await json('POST', `/periods/${periodId}/reconcile`, { token });
+  assert.equal(status, 200, JSON.stringify(body));
+
+  assert.equal(body.reconciliation.matchedCount, 2, 'INV-001 and INV-002 were paid');
+  assert.equal(body.transactionsComputed, 4, 'every ledger entry gets computed VAT');
+  assert.ok(body.flagsRaised > 0);
+});
+
+run('VAT is computed only on ledger entries, never on bank movements', async () => {
+  const { body } = await json('GET', `/periods/${periodId}/transactions`, { token });
+  for (const txn of body) {
+    if (txn.source === 'bank') {
+      assert.equal(txn.vatPaisa, null, 'a bank line is money moving, not a supply');
+    } else {
+      assert.ok(Number.isInteger(txn.vatPaisa), 'a ledger entry must carry computed VAT');
+    }
+  }
+});
+
+run('a register that misstates VAT is flagged with both figures', async () => {
+  const discrepancy = (await flags()).find((f) => /reports VAT of/.test(f.message));
+  assert.ok(discrepancy, 'the wrong VAT on INV-005 should be found');
+  assert.match(discrepancy.message, /Rs\. 1,000\.00/, 'what the client wrote');
+  assert.match(discrepancy.message, /Rs\. 1,300\.00/, 'what the law says');
+  assert.match(discrepancy.message, /understated by Rs\. 300\.00/);
+});
+
+run('a gap in the sales invoice sequence is found', async () => {
+  const gap = (await flags()).find((f) => f.type === 'invoice_gap');
+  assert.ok(gap, 'INV-004 is missing from the sequence');
+  assert.match(gap.message, /INV-004/);
+  assert.equal(gap.severity, 'high');
+});
+
+run('a bank payment with no purchase bill is found', async () => {
+  const missing = (await flags()).find(
+    (f) => f.type === 'missing_bill' && /GURUNG HARDWARE/i.test(f.message),
+  );
+  assert.ok(missing, 'money left the account with nothing to show for it');
+  assert.match(missing.suggestion, /input VAT/);
+});
+
+run('an unpaid invoice is found, and rated below a missing bill', async () => {
+  const unpaid = (await flags()).find((f) => /INV-003/.test(f.message));
+  assert.ok(unpaid);
+  assert.equal(unpaid.severity, 'medium', 'an unpaid invoice is normal; it is not an error');
+  assert.match(unpaid.suggestion, /receivable/);
+});
+
+run('flags arrive sorted so the reviewer lands on what matters', async () => {
+  const rank = { high: 0, medium: 1, low: 2 };
+  const open = (await flags()).filter((f) => f.status === 'open');
+  const severities = open.map((f) => rank[f.severity]);
+  assert.deepEqual(severities, [...severities].sort((a, b) => a - b));
+});
+
+run('every flag carries provenance back to a source document', async () => {
+  for (const flag of await flags()) {
+    if (!flag.transactionId) continue;
+    assert.ok(flag.sourceRef, 'a flag must be traceable to the line it came from');
+    assert.ok(flag.documentFilename);
+  }
+});
+
+run('accepting a flag records who decided and when', async () => {
+  const target = (await flags()).find((f) => f.status === 'open' && f.severity !== 'high');
+  const { status, body } = await json('PATCH', `/flags/${target.id}`, {
+    token,
+    body: { status: 'accepted', note: 'Confirmed with the client.' },
+  });
+
+  assert.equal(status, 200);
+  assert.equal(body.status, 'accepted');
+  assert.ok(body.resolvedBy, 'anonymous sign-off is worse than none');
+  assert.ok(body.resolvedAt);
+  assert.equal(body.resolvedNote, 'Confirmed with the client.');
+});
+
+run('a high-severity flag cannot be dismissed without a written reason', async () => {
+  const high = (await flags()).find((f) => f.status === 'open' && f.severity === 'high');
+  assert.ok(high, 'the fixture should produce at least one high-severity flag');
+
+  const bare = await json('PATCH', `/flags/${high.id}`, { token, body: { status: 'dismissed' } });
+  assert.equal(bare.status, 400);
+  assert.equal(bare.body.error.code, 'reason_required');
+
+  const token10 = await json('PATCH', `/flags/${high.id}`, {
+    token,
+    body: { status: 'dismissed', note: 'too short' },
+  });
+  assert.equal(token10.status, 400, 'a token gesture is not a reason');
+
+  const proper = await json('PATCH', `/flags/${high.id}`, {
+    token,
+    body: {
+      status: 'dismissed',
+      note: 'Confirmed with client: INV-004 was cancelled and the copy retained.',
+    },
+  });
+  assert.equal(proper.status, 200);
+  assert.equal(proper.body.status, 'dismissed');
+});
+
+run('the same flag cannot be resolved twice', async () => {
+  const resolved = (await flags()).find((f) => f.status === 'accepted');
+  const { status, body } = await json('PATCH', `/flags/${resolved.id}`, {
+    token,
+    body: { status: 'dismissed', note: 'changing my mind about this one' },
+  });
+  assert.equal(status, 409);
+  assert.equal(body.error.code, 'already_resolved');
+});
+
+run("re-running reconciliation does not re-ask a question already answered", async () => {
+  const priorFlags = await flags();
+  const decided = priorFlags.filter((f) => f.status === 'accepted' || f.status === 'dismissed');
+  assert.ok(decided.length >= 2, 'the fixture should have resolved some flags by now');
+
+  const { body } = await json('POST', `/periods/${periodId}/reconcile`, { token });
+  assert.ok(body.flagsSkipped >= decided.length, 'resolved findings must not be raised again');
+
+  const laterFlags = await flags();
+  for (const d of decided) {
+    const still = laterFlags.find((f) => f.id === d.id);
+    assert.ok(still, "a human's decision must survive a re-run");
+    assert.equal(still.status, d.status);
+    assert.equal(still.resolvedNote, d.resolvedNote);
+  }
+});
+
+run('re-running does not duplicate the open flags either', async () => {
+  const openBefore = (await flags()).filter((f) => f.status === 'open');
+  await json('POST', `/periods/${periodId}/reconcile`, { token });
+  const openAfter = (await flags()).filter((f) => f.status === 'open');
+  assert.equal(openAfter.length, openBefore.length, 'reconciling twice must not double the sheet');
+});
+
+run('the VAT summary nets output against input and refuses to look final', async () => {
+  const { body } = await json('GET', `/periods/${periodId}/vat-summary`, { token });
+
+  // Four sales: 10,000 + 20,000 + 15,000 + 10,000 taxable.
+  assert.equal(body.taxableSalesPaisa, 5_500_000);
+  assert.equal(body.outputVatPaisa, 715_000, '13% of 55,000');
+  assert.equal(body.inputVatPaisa, 0, 'no purchase register was uploaded');
+  assert.equal(body.netVatPaisa, 715_000);
+  assert.equal(body.position, 'payable');
+
+  assert.equal(body.uncomputedCount, 0);
+  assert.ok(body.openFlagCount > 0);
+  assert.equal(body.status, 'pending_review', 'open flags mean it is not ready');
+  assert.match(body.disclaimer, /not final until an accountant/);
+});
+
+run('every review action was written to the audit trail', async () => {
+  const rows = fixture.psql(['-tA', '-c', 'SELECT action FROM audit_log ORDER BY created_at']);
+  const actions = rows.trim().split('\n');
+  for (const action of ['reconcile', 'accept_flag', 'dismiss_flag']) {
+    assert.ok(actions.includes(action), `${action} must be audited`);
+  }
+});
+
+run("another firm cannot see or resolve this firm's flags", async () => {
+  const stranger = await json('POST', '/auth/register', {
+    body: {
+      firmName: 'Rival Accountants',
+      fullName: 'Someone Else',
+      email: 'rival-review@example.com',
+      password: 'another-sufficiently-long-pw',
+    },
+  });
+  const theirToken = stranger.body.accessToken;
+
+  const seen = await json('GET', `/periods/${periodId}/flags`, { token: theirToken });
+  assert.deepEqual(seen.body, []);
+
+  const mine = (await flags()).find((f) => f.status === 'open');
+  const attempt = await json('PATCH', `/flags/${mine.id}`, {
+    token: theirToken,
+    body: { status: 'accepted', note: 'not mine to accept' },
+  });
+  assert.equal(attempt.status, 404, "another firm's flag must be invisible, not merely forbidden");
+});
+
+run('reconciling a period with nothing parsed says so plainly', async () => {
+  const client = await json('POST', '/clients', { token, body: { name: 'Empty Client' } });
+  const period = await json('POST', `/clients/${client.body.id}/periods`, {
+    token,
+    body: { bsYear: 2081, bsMonth: 5 },
+  });
+
+  const { status, body } = await json('POST', `/periods/${period.body.id}/reconcile`, { token });
+  assert.equal(status, 409);
+  assert.equal(body.error.code, 'no_transactions');
+});
