@@ -12,7 +12,9 @@
     "test:coverage": "node --test --experimental-test-coverage \"tests/**/*.test.js\"",
     "lint": "eslint src tests",
     "test:db": "bash db/tests/run.sh",
-    "test:all": "npm run test && npm run test:db"
+    "test:all": "npm run test && npm run test:db",
+    "worker": "node src/workers/index.js",
+    "worker:dev": "node --watch src/workers/index.js"
   },
   "engines": {
     "node": ">=20"

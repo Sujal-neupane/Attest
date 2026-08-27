@@ -19,6 +19,21 @@
 
 BEGIN;
 
+-- Roles live in pg_authid, which is CLUSTER-wide rather than per-database. Two
+-- migrations running at the same time — three test suites setting up in
+-- parallel, or two app instances deploying together — both try to update the
+-- same catalog row, and Postgres refuses one of them with "tuple concurrently
+-- updated". The failure has nothing to do with what either migration was
+-- actually doing, which makes it maddening to diagnose.
+--
+-- An advisory lock serialises concurrent runs against THIS database. Note the
+-- limit: advisory lock tags include the database oid, so runs against different
+-- databases in the same cluster do not serialise against each other. That is
+-- why the ALTER below is also made conditional — together they cover both the
+-- same-database case (lock) and the different-database case (no write at all
+-- when nothing needs changing).
+SELECT pg_advisory_xact_lock(hashtext('attest:app_role'));
+
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'attest_app') THEN
@@ -29,7 +44,24 @@ $$;
 
 -- Explicit and non-negotiable. NOSUPERUSER is stated even though it is the
 -- default, because this is precisely the property that was assumed and wrong.
-ALTER ROLE attest_app NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE LOGIN;
+--
+-- Applied only when something actually differs. An unconditional ALTER ROLE
+-- rewrites the pg_authid row every time the migration runs, and because that
+-- catalog is cluster-wide, two runs against different databases collide with
+-- "tuple concurrently updated" — a failure with nothing to do with either
+-- migration. Not writing when there is nothing to write removes the collision
+-- and is the right behaviour regardless.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_roles
+     WHERE rolname = 'attest_app'
+       AND (rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole OR NOT rolcanlogin)
+  ) THEN
+    ALTER ROLE attest_app NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE LOGIN;
+  END IF;
+END;
+$$;
 
 DO $$ BEGIN
   EXECUTE format('GRANT CONNECT ON DATABASE %I TO attest_app', current_database());

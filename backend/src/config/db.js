@@ -40,6 +40,36 @@ const env = require('./env');
  */
 types.setTypeParser(1082, (value) => value);
 
+/**
+ * Return BIGINT columns as numbers, not strings.
+ *
+ * node-pg's default is a string, because a Postgres bigint can exceed
+ * Number.MAX_SAFE_INTEGER. That default is disastrous here: every monetary
+ * amount is a bigint of paisa, so `amount_paisa` came back as '-1130000' and
+ * arithmetic on it silently became string concatenation — a sum of two
+ * payments producing '-1130000-565000' rather than a figure. It does not throw.
+ * It produces a wrong number that looks like a number.
+ *
+ * Converting is safe for this schema because paisa amounts, page counts and
+ * audit ids are all far inside the safe-integer range — but "safe because of
+ * how we use it" is exactly the reasoning that rots, so the guard is explicit
+ * rather than assumed. If a value ever does exceed the safe range, this throws
+ * loudly at the boundary instead of quietly losing precision somewhere later.
+ *
+ * 20 is the OID for INT8/BIGINT.
+ */
+types.setTypeParser(20, (value) => {
+  if (value === null) return null;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(
+      `Refusing to read bigint ${value} as a JavaScript number: it is outside ` +
+        `the safe integer range and converting would silently lose precision.`,
+    );
+  }
+  return parsed;
+});
+
 const pool = new Pool({
   connectionString: env.DATABASE_URL,
   max: env.DATABASE_POOL_MAX,
