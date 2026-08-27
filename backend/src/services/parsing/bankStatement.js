@@ -165,7 +165,7 @@ function parseBankStatement(text, context = {}) {
   }
 
   const balanceCheck = map.balance
-    ? verifyRunningBalance(records, map, transactions, order.order)
+    ? verifyRunningBalance(records, map)
     : null;
 
   if (balanceCheck && !balanceCheck.consistent) {
@@ -251,7 +251,7 @@ function readAmount(values, map) {
  * A break points at a *missing row* far more often than at a misparse, which is
  * exactly the failure an accountant needs told: the export is short.
  */
-function verifyRunningBalance(records, map, transactions, dayFirst) {
+function verifyRunningBalance(records, map) {
   const breaks = [];
   let previous = null;
   let checked = 0;

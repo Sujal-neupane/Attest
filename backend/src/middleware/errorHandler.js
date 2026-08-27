@@ -53,9 +53,9 @@ function notFound(req, _res, next) {
   next(new ApiError(404, `No route for ${req.method} ${req.path}.`, { code: 'not_found' }));
 }
 
-// eslint-disable-next-line no-unused-vars -- Express identifies the error
-// handler by its four-parameter signature; `next` must stay.
-function errorHandler(err, req, res, next) {
+// Express identifies the error handler by its four-parameter arity, so the
+// fourth parameter must stay even though it is never called.
+function errorHandler(err, req, res, _next) {
   const requestId = req.id;
 
   if (err instanceof ZodError) {

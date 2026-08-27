@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel a superseded run rather than paying for both.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+
+    # The database tests need a real Postgres, because what they test —
+    # row-level security policies, triggers, check constraints — does not exist
+    # anywhere else. Mocking it would test the mock.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install client tooling
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      # `npm ci` rather than `npm install`: it installs exactly the lockfile and
+      # fails if package.json and the lock have drifted, which is the point of
+      # committing a lockfile at all.
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Unit tests
+        working-directory: backend
+        run: npm test
+
+      - name: Database tests
+        working-directory: backend
+        env:
+          DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/attest_test
+        run: |
+          psql -h localhost -U postgres -d postgres \
+            -c 'DROP DATABASE IF EXISTS attest_test' \
+            -c 'CREATE DATABASE attest_test'
+          bash db/tests/run.sh
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - working-directory: backend
+        run: npm ci
+      - working-directory: backend
+        run: npm run lint
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # This product holds client financial data. A known-vulnerable transitive
+      # dependency is a finding, not a warning to scroll past.
+      - working-directory: backend
+        run: npm audit --audit-level=high

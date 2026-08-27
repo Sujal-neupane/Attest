@@ -21,9 +21,14 @@ const DB_NAME = 'attest_api_test';
 // Connects as attest_app, NOT as postgres. A superuser bypasses row-level
 // security entirely, so testing the API as one would prove nothing about
 // tenant isolation — which is exactly the bug these tests caught.
+// A password is always supplied: it is ignored under local trust auth and
+// required by the scram auth CI's Postgres uses, so one URL works in both.
+const APP_ROLE_PASSWORD = 'attest_app_test';
 const DATABASE_URL =
   process.env.DATABASE_URL_TEST ||
-  `postgres://attest_app@/${DB_NAME}?host=${SOCKET}&port=${PORT}`;
+  (SOCKET.startsWith('/')
+    ? `postgres://attest_app:${APP_ROLE_PASSWORD}@/${DB_NAME}?host=${SOCKET}&port=${PORT}`
+    : `postgres://attest_app:${APP_ROLE_PASSWORD}@${SOCKET}:${PORT}/${DB_NAME}`);
 
 function psql(args, opts = {}) {
   return execFileSync('psql', args, { encoding: 'utf8', stdio: 'pipe', ...opts });
@@ -60,6 +65,8 @@ describe('API', async () => {
     psql(['-h', SOCKET, '-p', PORT, '-U', 'postgres', '-d', DB_NAME, '-q',
       '-v', 'ON_ERROR_STOP=1',
       '-f', path.join(__dirname, '../db/migrations/002_app_role.sql')]);
+    psql(['-h', SOCKET, '-p', PORT, '-U', 'postgres', '-d', DB_NAME, '-q',
+      '-c', `ALTER ROLE attest_app PASSWORD '${APP_ROLE_PASSWORD}'`]);
 
     process.env.NODE_ENV = 'test';
     process.env.DATABASE_URL = DATABASE_URL;

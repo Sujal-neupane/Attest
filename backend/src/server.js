@@ -1,3 +1,7 @@
+/* eslint-disable no-console -- This is the process entrypoint; writing
+   startup and shutdown lines to stdout is exactly its job, and it runs before
+   the request logger exists. */
+
 /**
  * Process entrypoint.
  *
@@ -13,7 +17,6 @@ const db = require('./config/db');
 const app = createApp();
 
 const server = app.listen(env.PORT, () => {
-  // eslint-disable-next-line no-console
   console.log(`Attest API listening on :${env.PORT} (${env.NODE_ENV})`);
 });
 
@@ -29,11 +32,9 @@ let shuttingDown = false;
 async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
-  // eslint-disable-next-line no-console
   console.log(`${signal} received, finishing in-flight requests`);
 
   const force = setTimeout(() => {
-    // eslint-disable-next-line no-console
     console.error('Shutdown timed out after 10s, exiting anyway');
     process.exit(1);
   }, 10_000).unref();
@@ -49,7 +50,6 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
 process.on('unhandledRejection', (reason) => {
-  // eslint-disable-next-line no-console
   console.error('Unhandled rejection', reason);
   shutdown('unhandledRejection');
 });

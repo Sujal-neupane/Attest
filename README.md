@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="#status"><img alt="status" src="https://img.shields.io/badge/status-in%20development-9A6100"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-53%20passing-2F7A6F">
+  <img alt="tests" src="https://img.shields.io/badge/tests-119%20passing-2F7A6F">
   <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-2F7A6F">
   <img alt="postgres" src="https://img.shields.io/badge/postgres-16-2F7A6F">
 </p>
@@ -178,19 +178,31 @@ npm --prefix backend run test:db
 
 ## Status
 
-Built and tested:
+Built and tested — **119 tests passing** (107 Node, 12 database):
 
-- [x] Deterministic financial core — money, VAT, TDS, reconciliation, anomalies (41 tests)
-- [x] Database schema with row-level security, append-only audit log (12 tests)
+- [x] Deterministic financial core — money, VAT, TDS, reconciliation, anomalies (41)
+- [x] Database schema with row-level security, append-only audit log (12)
+- [x] Import pipeline — CSV, column mapping, date resolution, bank statements (49)
+- [x] API — auth, clients, fiscal periods, tenant isolation end to end (17)
+- [x] CI on every push: unit tests, database tests, lint, dependency audit
 - [x] Brand and design system
 
 In progress:
 
-- [ ] API layer, auth, upload pipeline
-- [ ] CSV and PDF parsing, normalization
+- [ ] Document upload to encrypted storage, background worker pipeline
+- [ ] Sales and purchase register import
 - [ ] Review sheet with source click-through
 - [ ] LLM extraction with tool calling
 - [ ] Deploy, sample data, demo
+
+Known gaps, stated rather than hidden:
+
+- **Bikram Sambat dates are not converted.** BS month lengths need an official
+  transcribed table, and a table that is nearly right silently moves
+  transactions into the wrong VAT period. BS-dated files are refused at import
+  with an explanation. See [`nepaliCalendar.js`](backend/src/utils/nepaliCalendar.js).
+- Passwords use scrypt rather than argon2id — see
+  [`password.js`](backend/src/utils/password.js) for the reasoning.
 
 Deliberately **not** in v1, and listed so the scope stays cut: direct IRD/CBMS
 filing, multi-factor auth, every bank format, mobile, billing.

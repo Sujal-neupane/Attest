@@ -32,7 +32,6 @@ const pool = new Pool({
 pool.on('error', (err) => {
   // An idle client erroring out is a connectivity problem, not a request
   // problem; log it loudly rather than letting it take the process down.
-  // eslint-disable-next-line no-console
   console.error('[db] idle client error', err);
 });
 

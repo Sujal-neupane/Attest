@@ -177,7 +177,11 @@ function normaliseName(value) {
     .toLowerCase()
     // Legal-form noise that carries no identifying information.
     .replace(/\b(pvt|private|ltd|limited|company|co|and|&|suppliers?|traders?|enterprises?)\b/g, ' ')
-    .replace(/[^a-z0-9ऀ-ॿ ]/g, ' ')
+    // Unicode property escapes rather than an explicit Devanagari range: a
+    // range spanning that block includes combining matras, and a character
+    // class over those can split a grapheme. \p{L} covers Latin and Devanagari
+    // alike, which is what a party name in a Nepali ledger actually contains.
+    .replace(/[^\p{L}\p{N} ]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
