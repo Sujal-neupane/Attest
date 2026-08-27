@@ -16,6 +16,11 @@ const schema = z.object({
 
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
+  // 'true' / 'false'. Unset means TLS in production and plain elsewhere.
+  DATABASE_SSL: z.enum(['true', 'false', '0', '1']).optional(),
+  // The provider's root certificate, when you have it — turns TLS from
+  // encrypted-but-unverified into properly verified.
+  DATABASE_CA_CERT: z.string().optional(),
 
   // Signing secrets. Enforcing a real length here is worth the friction: a
   // short secret is a forgeable token, and a forgeable token in this product is
@@ -37,7 +42,19 @@ const schema = z.object({
   // rotating one does not invalidate the other.
   STORAGE_SIGNING_SECRET: z.string().optional(),
 
+  // 'local' writes encrypted files to disk; 's3' to any S3-compatible bucket.
+  // Local is fine for one box and wrong for two — the API and worker are
+  // separate processes, and on separate hosts they do not share a disk.
+  STORAGE_BACKEND: z.enum(['local', 's3']).default('local'),
   STORAGE_BUCKET: z.string().optional(),
+  STORAGE_ENDPOINT: z.string().optional(),
+  STORAGE_REGION: z.string().default('us-east-1'),
+  STORAGE_ACCESS_KEY_ID: z.string().optional(),
+  STORAGE_SECRET_ACCESS_KEY: z.string().optional(),
+  // MinIO and most self-hosted providers need this; AWS and R2 do not.
+  STORAGE_FORCE_PATH_STYLE: z.enum(['true', 'false']).default('false'),
+  // Opt-in second layer, e.g. 'AES256'. Not every provider accepts it.
+  STORAGE_SERVER_SIDE_ENCRYPTION: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
 });
 

@@ -77,18 +77,37 @@ Then seed the demo, once, from the Render shell:
 node db/seed/demo.js
 ```
 
+### Object storage
+
+The API and the worker are separate processes. A local disk works only while
+they share a filesystem, which stops being true the moment they are on separate
+hosts — or the moment there is a second instance of either. So a real deployment
+uses an S3-compatible bucket:
+
+| Variable | Example |
+|---|---|
+| `STORAGE_BACKEND` | `s3` |
+| `STORAGE_ENDPOINT` | `https://<account>.r2.cloudflarestorage.com` |
+| `STORAGE_BUCKET` | `attest-documents` |
+| `STORAGE_REGION` | `auto` for R2, the real region for AWS |
+| `STORAGE_ACCESS_KEY_ID` / `STORAGE_SECRET_ACCESS_KEY` | from the provider |
+| `STORAGE_FORCE_PATH_STYLE` | `true` for MinIO and most self-hosted; `false` for AWS and R2 |
+
+Cloudflare R2 is the recommended provider on a free tier: no egress charges, and
+S3-compatible.
+
+**Documents are encrypted by Attest before they are uploaded.** The provider
+stores ciphertext and never sees the key. That is deliberate: provider-side
+encryption protects against a stolen disk, but the provider holds those keys, so
+it does not protect a client's bank statement from the company renting you the
+bucket. `STORAGE_SERVER_SIDE_ENCRYPTION=AES256` adds their layer as well, where
+supported — it is opt-in because not every provider accepts the header.
+
 ### On the free tier
 
 Free web services sleep after inactivity, so the first request to a cold
 instance takes 30–50 seconds. For a demo link someone else will open, that reads
 as a broken site. Either warm it before sharing the link, or say so on the page.
-
-The free disk is not shared between services. Both the API and the worker mount
-`/data/uploads`, and on Render's free plan **they do not see the same disk** —
-which means the worker cannot read what the API wrote. For a real deployment,
-move storage to S3-compatible object storage (the `storage.js` interface exists
-for exactly this) or run both on a paid plan with a shared disk. The demo seed
-sidesteps it by uploading, parsing and reconciling in one process.
 
 ---
 
@@ -112,8 +131,6 @@ set for itself.
 
 Stated plainly, because a deployed thing invites people to trust it:
 
-- **Object storage, not a disk.** Local encrypted files are fine for one box and
-  wrong for two.
 - **Multi-factor authentication.** Designed for, not built.
 - **Data residency.** The IRD's e-billing directives expect Nepali hosting or a
   Nepal-accessible backup. Render's free regions are neither.

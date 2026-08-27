@@ -25,6 +25,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { Client } = require('pg');
+const { sslFor } = require('../src/config/pgSsl');
 
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 
@@ -41,12 +42,7 @@ async function migrate({ databaseUrl = process.env.DATABASE_URL, log = console.l
 
   const client = new Client({
     connectionString: databaseUrl,
-    // Managed Postgres (Render, Neon, Supabase) requires TLS but presents a
-    // certificate chain the default agent rejects. Verified elsewhere by the
-    // provider; refusing to connect at all would be worse than this.
-    ssl: /localhost|127\.0\.0\.1|host=\//.test(databaseUrl)
-      ? false
-      : { rejectUnauthorized: false },
+    ssl: sslFor({ databaseUrl }),
   });
 
   await client.connect();

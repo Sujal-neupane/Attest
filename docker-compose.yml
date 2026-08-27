@@ -4,6 +4,32 @@
 # Vite's dev server is faster on the host, and containerising it buys nothing.
 
 services:
+  # S3-compatible object storage. This is what a real deployment uses instead of
+  # a shared disk: the API and the worker are separate processes, and on
+  # separate hosts they do not share a filesystem.
+  minio:
+    image: quay.io/minio/minio:latest
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: attestminio
+      MINIO_ROOT_PASSWORD: attestminio123
+    ports: ['9000:9000']
+    volumes: ['attest-minio:/data']
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      retries: 10
+
+  # Creates the bucket once, then exits. Without it the first upload fails
+  # against a bucket that does not exist yet.
+  minio-init:
+    image: quay.io/minio/mc:latest
+    depends_on:
+      minio: { condition: service_healthy }
+    entrypoint: >
+      sh -c "mc alias set local http://minio:9000 attestminio attestminio123 &&
+             mc mb --ignore-existing local/attest-documents"
+
   postgres:
     image: postgres:16
     environment:
@@ -26,24 +52,42 @@ services:
       DATABASE_URL: postgres://postgres:attest@postgres:5432/attest
       JWT_ACCESS_SECRET: local-development-access-secret-32-chars
       JWT_REFRESH_SECRET: local-development-refresh-secret-differs
-      STORAGE_ROOT: /data/uploads
       CORS_ORIGIN: http://localhost:5173
+      # Object storage, not a disk — the shape a real deployment takes.
+      STORAGE_BACKEND: s3
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_BUCKET: attest-documents
+      STORAGE_REGION: us-east-1
+      STORAGE_ACCESS_KEY_ID: attestminio
+      STORAGE_SECRET_ACCESS_KEY: attestminio123
+      STORAGE_FORCE_PATH_STYLE: 'true'
+      # Both processes MUST use the same key, or the worker cannot decrypt what
+      # the API stored. This is the single most important line in the file.
+      STORAGE_ENCRYPTION_KEY: 7Yw7bejOIDQst8wkJ1MVkRHIjQKQ/H4Z5xxJEYUbZ4w=
     ports: ['4000:4000']
-    volumes: ['attest-uploads:/data/uploads']
     depends_on:
       postgres: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
 
   worker:
     build: ./backend
     command: node src/workers/index.js
+    # The image's HEALTHCHECK probes the HTTP health endpoint, which only the
+    # API serves. Inherited unchanged, the worker would sit permanently
+    # unhealthy while doing its job perfectly — a false alarm that trains you to
+    # ignore the real ones.
+    healthcheck:
+      disable: true
     environment: *env
-    # The same encrypted volume as the API. If these two did not share it the
-    # worker would decrypt nothing, and the symptom would be an integrity error
-    # on a file that is perfectly intact.
-    volumes: ['attest-uploads:/data/uploads']
     depends_on:
       postgres: { condition: service_healthy }
+      # Waits for the API, which runs migrations before reporting healthy. The
+      # worker would otherwise start against a schema that has no job table yet
+      # and log a wall of "function attest_claim_job does not exist" until it
+      # appeared. It recovers on its own — but an error you are meant to ignore
+      # is indistinguishable from one you are not.
+      api: { condition: service_healthy }
 
 volumes:
   attest-pgdata:
-  attest-uploads:
+  attest-minio:

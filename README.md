@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="#status"><img alt="status" src="https://img.shields.io/badge/status-in%20development-9A6100"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-259%20passing-2F7A6F">
+  <img alt="tests" src="https://img.shields.io/badge/tests-278%20passing-2F7A6F">
   <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-2F7A6F">
   <img alt="postgres" src="https://img.shields.io/badge/postgres-16-2F7A6F">
 </p>
@@ -167,6 +167,21 @@ With a separate broker those two can diverge — the row commits, the enqueue
 fails, and a document is never parsed and never marked failed. That silent drop
 is the thing this product must not do.
 
+**Object storage is encrypted by us, not by the provider.**
+Documents are AES-256-GCM encrypted *before* upload, so an S3-compatible bucket
+holds ciphertext and never the key. Provider-side encryption is worth enabling
+too, but on its own it only protects against a stolen disk — the provider holds
+those keys, so it does not stop the company renting you a bucket from reading a
+client's bank statement.
+
+The S3 client signs its own requests. `@aws-sdk/client-s3` is tens of megabytes
+and a large dependency tree for four verbs against one bucket, in an image that
+holds client financial data. SigV4 is ~100 lines, verified against AWS's own
+published test vectors, and the whole client is exercised against a real MinIO
+server — a signing bug there fails loudly on every request rather than
+corrupting anything quietly.
+[`sigv4.js`](backend/src/services/storage/sigv4.js) · [tests](backend/tests/sigv4.test.js)
+
 **Documents are encrypted at rest, in development as well as production.**
 AES-256-GCM, which authenticates as well as encrypts, so a file altered on disk
 fails to decrypt rather than returning corrupted bytes that then get parsed into
@@ -223,7 +238,7 @@ npm --prefix backend run test:db
 
 ## Status
 
-Built and tested — **259 tests passing** (226 backend, 21 frontend, 12 database):
+Built and tested — **278 tests passing** (245 backend, 21 frontend, 12 database):
 
 - [x] Deterministic financial core — money, VAT, TDS, reconciliation, anomalies (41)
 - [x] Database schema with row-level security, append-only audit log (12)
@@ -239,6 +254,7 @@ Built and tested — **259 tests passing** (226 backend, 21 frontend, 12 databas
 
 - [x] React review sheet — keyboard-driven, with source click-through (21)
 - [x] CSV export — VAT summary, review report, full ledger (9)
+- [x] S3-compatible object storage, signed by hand and tested against MinIO (19)
 
 In progress:
 - [ ] LLM extraction with tool calling

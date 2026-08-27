@@ -21,6 +21,7 @@
 
 const { Pool, types } = require('pg');
 const env = require('./env');
+const { sslFor } = require('./pgSsl');
 
 /**
  * Return DATE columns as plain 'YYYY-MM-DD' strings instead of JS Date objects.
@@ -72,6 +73,9 @@ types.setTypeParser(20, (value) => {
 
 const pool = new Pool({
   connectionString: env.DATABASE_URL,
+  // Declared, never inferred from the hostname — see pgSsl.js for the outage
+  // that taught that lesson.
+  ssl: sslFor({ databaseUrl: env.DATABASE_URL, nodeEnv: env.NODE_ENV }),
   max: env.DATABASE_POOL_MAX,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,

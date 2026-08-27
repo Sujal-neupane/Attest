@@ -13,6 +13,25 @@
 const env = require('./config/env');
 const { createApp } = require('./app');
 const db = require('./config/db');
+const storageConfig = require('./config/storage');
+
+/**
+ * Resolve storage before binding the port.
+ *
+ * It is built lazily, which meant a bad STORAGE_ENCRYPTION_KEY was not
+ * discovered until somebody uploaded a document — by which point the process
+ * had started, passed its health check, and been put into rotation. The
+ * accountant found the misconfiguration, not the deploy.
+ *
+ * Configuration that cannot work should stop the process, not the user.
+ */
+try {
+  const { backend } = storageConfig.get();
+  console.log(`Storage ready (${backend})`);
+} catch (err) {
+  console.error(`Storage is misconfigured, refusing to start:\n  ${err.message}`);
+  process.exit(1);
+}
 
 const app = createApp();
 

@@ -24,6 +24,15 @@ COPY --chown=node:node package.json ./
 COPY --chown=node:node src ./src
 COPY --chown=node:node db ./db
 
+# Create the storage directory in the IMAGE, owned by node.
+#
+# Docker seeds a fresh named volume from whatever is at the mount point in the
+# image, ownership included. Without this the volume is created owned by root,
+# the container runs as node, and every upload fails with EACCES on mkdir —
+# after the API has already started and reported itself healthy.
+RUN mkdir -p /data/uploads && chown -R node:node /data
+VOLUME /data/uploads
+
 USER node
 EXPOSE 4000
 

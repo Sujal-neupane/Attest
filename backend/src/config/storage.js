@@ -11,6 +11,7 @@ const crypto = require('node:crypto');
 const path = require('node:path');
 const env = require('./env');
 const storage = require('../services/storage');
+const { createS3Storage } = require('../services/storage/s3');
 
 /**
  * In production the encryption key is explicit and separate from every signing
@@ -52,14 +53,44 @@ let cached = null;
 
 /** Lazily built and memoised, so requiring this module has no side effects. */
 function get() {
-  if (!cached) {
-    const root = path.resolve(env.STORAGE_ROOT || 'uploads');
+  if (cached) return cached;
+
+  const key = resolveKey();
+  const signer = storage.createSigner(resolveSigningSecret());
+
+  if (env.STORAGE_BACKEND === 's3') {
+    // Missing configuration throws here, at startup, rather than on the first
+    // upload — which would be after the service reported itself healthy.
     cached = {
-      store: storage.createLocalStorage({ root, key: resolveKey() }),
-      signer: storage.createSigner(resolveSigningSecret()),
-      root,
+      store: createS3Storage(
+        {
+          bucket: env.STORAGE_BUCKET,
+          endpoint: env.STORAGE_ENDPOINT,
+          region: env.STORAGE_REGION,
+          accessKeyId: env.STORAGE_ACCESS_KEY_ID,
+          secretAccessKey: env.STORAGE_SECRET_ACCESS_KEY,
+          forcePathStyle: env.STORAGE_FORCE_PATH_STYLE === 'true',
+          serverSideEncryption: env.STORAGE_SERVER_SIDE_ENCRYPTION,
+        },
+        {
+          encrypt: storage._internals.encrypt,
+          decrypt: storage._internals.decrypt,
+          key,
+        },
+      ),
+      signer,
+      backend: 's3',
     };
+    return cached;
   }
+
+  const root = path.resolve(env.STORAGE_ROOT || 'uploads');
+  cached = {
+    store: storage.createLocalStorage({ root, key }),
+    signer,
+    root,
+    backend: 'local',
+  };
   return cached;
 }
 
