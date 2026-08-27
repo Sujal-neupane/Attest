@@ -1,0 +1,95 @@
+-- The role the application connects as.
+--
+-- ─── WHY THIS MIGRATION EXISTS ─────────────────────────────────────────────
+--
+-- Migration 001 enabled row-level security on every tenant-scoped table, and
+-- the SQL tests proved the policies work. The application then connected as the
+-- `postgres` superuser and every one of those policies was silently ignored —
+-- because a Postgres SUPERUSER bypasses RLS unconditionally, and no error, log
+-- line or warning is produced when it does. Firm B could list Firm A's clients
+-- through the API while the isolation tests stayed green, because those tests
+-- were careful to drop to a restricted role and the application was not.
+--
+-- This was caught by an end-to-end API test asserting that a second firm sees
+-- an empty list. It is worth stating plainly: RLS is not a property of the
+-- schema alone. It is a property of the schema AND the role that connects. A
+-- correct policy reached by the wrong role is decorative.
+--
+-- So the application gets its own role, and that role can never bypass RLS.
+
+BEGIN;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'attest_app') THEN
+    CREATE ROLE attest_app LOGIN;
+  END IF;
+END;
+$$;
+
+-- Explicit and non-negotiable. NOSUPERUSER is stated even though it is the
+-- default, because this is precisely the property that was assumed and wrong.
+ALTER ROLE attest_app NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE LOGIN;
+
+DO $$ BEGIN
+  EXECUTE format('GRANT CONNECT ON DATABASE %I TO attest_app', current_database());
+END; $$;
+GRANT USAGE ON SCHEMA public TO attest_app;
+
+-- SELECT, INSERT and UPDATE — deliberately no DELETE, anywhere.
+--
+-- Financial records are never hard-deleted in this product: clients are
+-- archived, flags are resolved, documents are marked failed. Withholding the
+-- privilege means a stray DELETE is refused by the database rather than relying
+-- on every future developer remembering the rule.
+GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO attest_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO attest_app;
+
+-- Tables added by later migrations must inherit the same grants, or the first
+-- new table will work fine for the owner and fail in production.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE ON TABLES TO attest_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO attest_app;
+
+COMMIT;
+
+-- ---------------------------------------------------------------------------
+-- The one query that legitimately runs before a firm is known.
+--
+-- Signing in requires reading a user row to check a password, and at that
+-- moment nobody has proved who they are, so there is no firm to scope to. Every
+-- other query in the system runs inside withFirm(); this is the single
+-- exception, and rather than granting the application a way around row-level
+-- security in general, it gets one narrow, auditable function that returns
+-- exactly the columns a login needs and nothing else.
+--
+-- SECURITY DEFINER runs it as the owner, so the policies do not apply inside
+-- it. search_path is pinned because a SECURITY DEFINER function with a mutable
+-- search_path can be hijacked by a caller creating a same-named object in a
+-- schema earlier on the path.
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION attest_login_lookup(p_email text)
+RETURNS TABLE (
+  id uuid,
+  firm_id uuid,
+  email text,
+  password_hash text,
+  full_name text,
+  role user_role,
+  is_active boolean
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT u.id, u.firm_id, u.email, u.password_hash, u.full_name, u.role, u.is_active
+    FROM users u
+   WHERE lower(u.email) = lower(p_email)
+   LIMIT 1;
+$$;
+
+REVOKE ALL ON FUNCTION attest_login_lookup(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION attest_login_lookup(text) TO attest_app;
