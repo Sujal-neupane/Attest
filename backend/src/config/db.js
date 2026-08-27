@@ -131,6 +131,49 @@ async function unscoped(text, params) {
   return pool.query(text, params);
 }
 
+/**
+ * Refuse to serve if the application is connecting as the database owner.
+ *
+ * `jobs` is deliberately RLS-enabled-but-not-forced so the SECURITY DEFINER
+ * claim function can see the queue across firms (see migration 005). That is
+ * safe precisely because the app connects as a role that owns nothing — the
+ * policy applies to it in full.
+ *
+ * Connect as the owner instead and the same line becomes a cross-tenant leak:
+ * every firm would see every firm's jobs, and nothing would look wrong. It is a
+ * one-line mistake in a dashboard, and it is exactly the kind that a managed
+ * host encourages by handing you a single owner connection string.
+ *
+ * So it is checked at startup, and the process refuses rather than serving.
+ */
+async function assertNotTableOwner() {
+  const { rows } = await pool.query(
+    `SELECT current_user AS role,
+            pg_get_userbyid(c.relowner) AS owner
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relname = 'jobs'`,
+  );
+
+  const row = rows[0];
+  if (!row) return { checked: false };
+
+  if (row.role === row.owner) {
+    throw new Error(
+      `Attest is connecting to Postgres as "${row.role}", which owns its tables.\n\n` +
+        `That role bypasses the row-level security policy on the jobs table, so ` +
+        `every firm would be able to see every other firm's jobs.\n\n` +
+        `Run migrations as the owner, but point DATABASE_URL at the restricted ` +
+        `role instead:\n` +
+        `  MIGRATION_DATABASE_URL=<owner connection string>\n` +
+        `  DATABASE_URL=<same host/database, user attest_app>\n\n` +
+        `See docs/DEPLOY.md.`,
+    );
+  }
+
+  return { checked: true, role: row.role, owner: row.owner };
+}
+
 async function healthcheck() {
   const { rows } = await pool.query('SELECT 1 AS ok');
   return rows[0]?.ok === 1;
@@ -140,4 +183,4 @@ async function close() {
   await pool.end();
 }
 
-module.exports = { pool, withFirm, unscoped, healthcheck, close };
+module.exports = { pool, withFirm, unscoped, healthcheck, assertNotTableOwner, close };

@@ -97,13 +97,21 @@ still cannot double-process a document, and there is a test that proves it.
 
 1. **Neon** — create a project, copy the connection string
 2. **Cloudflare R2** — create a bucket, create an API token (Object Read & Write)
-3. **Render** — new **Web Service** (not a Blueprint, which would create the
+3. **Neon: create a second role.** In the Neon console → Roles → New Role,
+   called `attest_app`. You now have two connection strings, and the difference
+   matters more than it looks — see below.
+
+4. **Render** — new **Web Service** (not a Blueprint, which would create the
    paid worker), build with `backend/Dockerfile`, and set:
 
 ```
 NODE_ENV=production
 WORKER_MODE=inline
-DATABASE_URL=<the Neon connection string>
+# The OWNER role: migrations need to create tables.
+MIGRATION_DATABASE_URL=<Neon owner connection string>
+# The RESTRICTED role: this is what serves requests.
+DATABASE_URL=<same database, user attest_app>
+APP_DB_PASSWORD=<the attest_app password>
 DATABASE_SSL=true
 JWT_ACCESS_SECRET=<openssl rand -base64 48>
 JWT_REFRESH_SECRET=<a different one>
@@ -125,6 +133,26 @@ CORS_ORIGIN=https://<your-app>.vercel.app
 `STORAGE_ENCRYPTION_KEY` only needs to be set once here, because there is only
 one process. The moment you split the worker out again, it must be identical on
 both — see the top of this file.
+
+### Why two database roles, and not one
+
+A managed host hands you a single connection string for a role that **owns** the
+database, and using it for everything is the obvious thing to do. Do not.
+
+`jobs` has row-level security enabled but not forced, so the SECURITY DEFINER
+function the worker uses to claim a job can see the queue across firms — which
+it must, because it cannot know which firm a job belongs to until it has claimed
+one. That is safe only while the application connects as a role that owns
+nothing, because then the policy applies to it in full.
+
+Connect as the owner and that same line becomes a cross-tenant leak: every firm
+sees every firm's jobs, and nothing looks wrong.
+
+So the app refuses to start if it detects it is connecting as the table owner,
+and says so. That check exists because this was a real bug: while migrations ran
+as a Postgres superuser everything worked, and the first time the whole thing
+was run in the real topology the worker silently claimed nothing at all —
+documents sat at 'uploaded' forever, with no error in any log.
 
 ---
 

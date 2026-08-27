@@ -37,8 +37,16 @@ const CREATE_TABLE = `
   )
 `;
 
-async function migrate({ databaseUrl = process.env.DATABASE_URL, log = console.log } = {}) {
-  if (!databaseUrl) throw new Error('DATABASE_URL is required to run migrations.');
+async function migrate({
+  // Migrations need DDL rights, which the application role deliberately does
+  // not have. On a managed host that means the owner connection string here and
+  // the restricted one in DATABASE_URL — see docs/DEPLOY.md.
+  databaseUrl = process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL,
+  log = console.log,
+} = {}) {
+  if (!databaseUrl) {
+    throw new Error('MIGRATION_DATABASE_URL or DATABASE_URL is required to run migrations.');
+  }
 
   const client = new Client({
     connectionString: databaseUrl,
@@ -91,11 +99,41 @@ async function migrate({ databaseUrl = process.env.DATABASE_URL, log = console.l
       ran++;
     }
 
+    // The application role is created by migration 002 without a password,
+    // because a password in a migration file is a password in git. Set here
+    // instead, from the environment, so a deploy can provision it once.
+    if (process.env.APP_DB_PASSWORD) {
+      try {
+        await client.query(
+          `ALTER ROLE attest_app WITH LOGIN PASSWORD ${quoteLiteral(process.env.APP_DB_PASSWORD)}`,
+        );
+        log('  set the application role password');
+      } catch (err) {
+        // Some hosts do not let the database owner alter another role. Failing
+        // the whole migration over it would be wrong — the schema is already
+        // applied — but so would silence, because the app cannot connect
+        // without it.
+        throw new Error(
+          `The schema is up to date, but the application role's password could ` +
+            `not be set: ${err.message}\n\n` +
+            `Set it once by hand, as a role that can (on Neon, the owner can):\n` +
+            `  ALTER ROLE attest_app WITH LOGIN PASSWORD '<password>';\n\n` +
+            `Then remove APP_DB_PASSWORD and redeploy.`,
+          { cause: err },
+        );
+      }
+    }
+
     log(ran === 0 ? '  already up to date' : `  applied ${ran} migration(s)`);
     return { applied: ran, total: files.length };
   } finally {
     await client.end();
   }
+}
+
+/** ALTER ROLE takes no bind parameters, so the literal is quoted by hand. */
+function quoteLiteral(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
 }
 
 if (require.main === module) {

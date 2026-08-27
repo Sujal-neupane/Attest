@@ -45,6 +45,19 @@ if (env.WORKER_MODE === 'inline') {
 
 const app = createApp();
 
+/**
+ * Check the connection role before accepting a single request.
+ *
+ * A misconfiguration that leaks across tenants must stop the process, not be
+ * discovered by a customer.
+ */
+db.assertNotTableOwner()
+  .then(({ role }) => console.log(`Database role: ${role} (not the table owner)`))
+  .catch((err) => {
+    console.error(`\nRefusing to start:\n\n${err.message}\n`);
+    process.exit(1);
+  });
+
 const server = app.listen(env.PORT, () => {
   console.log(`Attest API listening on :${env.PORT} (${env.NODE_ENV})`);
 });
