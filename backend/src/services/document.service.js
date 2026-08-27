@@ -98,18 +98,36 @@ function createDocumentService({ store }) {
       const { byteSize } = await store.put(storageKey, file.contents);
 
       return withFirm(user.firmId, async (db) => {
-        const document = await documents.create(db, {
-          id: documentId,
-          firmId: user.firmId,
-          clientId: period.clientId,
-          fiscalPeriodId,
-          type: file.type,
-          filename: file.filename,
-          storageKey,
-          contentHash,
-          byteSize,
-          uploadedBy: user.id,
-        });
+        let document;
+        try {
+          document = await documents.create(db, {
+            id: documentId,
+            firmId: user.firmId,
+            clientId: period.clientId,
+            fiscalPeriodId,
+            type: file.type,
+            filename: file.filename,
+            storageKey,
+            contentHash,
+            byteSize,
+            uploadedBy: user.id,
+          });
+        } catch (err) {
+          // The duplicate check above is a read, so two uploads of the same file
+          // racing each other can both pass it. The unique index on
+          // (fiscal_period_id, content_hash) is what actually prevents the
+          // double-import; without translating it here the loser of the race
+          // gets a 500 instead of being told what happened.
+          if (err.code === '23505') {
+            throw new ApiError(
+              409,
+              'This exact file was uploaded to this period a moment ago. ' +
+                'Importing it twice would double every transaction in it.',
+              { code: 'duplicate_document' },
+            );
+          }
+          throw err;
+        }
 
         // Same transaction as the row above. Either both land or neither does,
         // so there is never a document nobody will parse.

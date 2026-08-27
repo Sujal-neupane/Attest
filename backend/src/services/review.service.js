@@ -35,6 +35,38 @@ const { ApiError } = require('../middleware/errorHandler');
 const VAT_TOLERANCE_PAISA = 2;
 
 /**
+ * The most transactions this engine will process in one period.
+ *
+ * Reconciliation is O(bank x ledger) and everything is held in memory, so there
+ * has to be a ceiling somewhere. What matters is that exceeding it REFUSES
+ * rather than truncates: a query with a LIMIT that silently returns the first
+ * few thousand rows would reconcile part of a period and report a VAT figure
+ * that looks complete and is not. Nobody would notice until an assessment.
+ */
+const MAX_PERIOD_TRANSACTIONS = 20_000;
+
+/**
+ * Load a period's transactions, or refuse if there are more than we can handle.
+ *
+ * Never returns a partial set.
+ */
+async function loadAllTransactions(db, fiscalPeriodId) {
+  const total = await documents.countTransactionsForPeriod(db, fiscalPeriodId);
+  if (total > MAX_PERIOD_TRANSACTIONS) {
+    throw new ApiError(
+      413,
+      `This period holds ${total.toLocaleString('en-US')} transactions, more than ` +
+        `the ${MAX_PERIOD_TRANSACTIONS.toLocaleString('en-US')} Attest reconciles at ` +
+        `once. Split it into shorter periods — a monthly VAT period rather than a ` +
+        `full year — so every figure is computed from a complete set rather than ` +
+        `from part of one.`,
+      { code: 'period_too_large' },
+    );
+  }
+  return documents.listTransactionsForPeriod(db, fiscalPeriodId, { limit: total });
+}
+
+/**
  * Run the whole engine over a period.
  *
  * Everything lands in ONE transaction. A crash halfway would otherwise leave
@@ -53,7 +85,7 @@ async function runReconciliation(user, fiscalPeriodId, context = {}) {
       });
     }
 
-    const all = await documents.listTransactionsForPeriod(db, fiscalPeriodId, { limit: 5000 });
+    const all = await loadAllTransactions(db, fiscalPeriodId);
     if (all.length === 0) {
       throw new ApiError(
         409,
@@ -365,7 +397,7 @@ async function vatSummary(user, fiscalPeriodId) {
       throw new ApiError(404, 'That fiscal period was not found.', { code: 'not_found' });
     }
 
-    const all = await documents.listTransactionsForPeriod(db, fiscalPeriodId, { limit: 5000 });
+    const all = await loadAllTransactions(db, fiscalPeriodId);
     const ledger = all.filter((t) => t.source === 'ledger');
     const uncomputed = ledger.filter((t) => t.vatPaisa === null);
 
@@ -413,6 +445,7 @@ async function vatSummary(user, fiscalPeriodId) {
 
 module.exports = {
   VAT_TOLERANCE_PAISA,
+  MAX_PERIOD_TRANSACTIONS,
   runReconciliation,
   listFlags,
   listReconciliations,

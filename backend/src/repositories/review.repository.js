@@ -2,6 +2,8 @@
  * SQL for reconciliation results, computed tax figures, and flags.
  */
 
+const { insertMany } = require('./batch');
+
 const FLAG_COLUMNS = `
   f.id, f.transaction_id AS "transactionId",
   f.related_transaction_ids AS "relatedTransactionIds",
@@ -53,32 +55,21 @@ async function resolvedFlagKeys(client, fiscalPeriodId) {
 }
 
 async function insertFlags(client, rows) {
-  if (rows.length === 0) return [];
-
-  const columns = [
-    'firm_id', 'fiscal_period_id', 'transaction_id', 'related_transaction_ids',
-    'type', 'severity', 'message', 'suggestion', 'ai_drafted', 'evidence',
-  ];
-
-  const values = [];
-  const placeholders = rows.map((row, i) => {
-    const base = i * columns.length;
-    values.push(
+  return insertMany(client, {
+    table: 'flags',
+    columns: [
+      'firm_id', 'fiscal_period_id', 'transaction_id', 'related_transaction_ids',
+      'type', 'severity', 'message', 'suggestion', 'ai_drafted', 'evidence',
+    ],
+    rows,
+    toValues: (row) => [
       row.firmId, row.fiscalPeriodId, row.transactionId ?? null,
       row.relatedTransactionIds ?? [], row.type, row.severity, row.message,
       row.suggestion ?? null, row.aiDrafted ?? false,
       JSON.stringify(row.evidence ?? []),
-    );
-    return `(${columns.map((_, c) => `$${base + c + 1}`).join(', ')})`;
+    ],
+    returning: 'id, type, severity',
   });
-
-  const { rows: inserted } = await client.query(
-    `INSERT INTO flags (${columns.join(', ')})
-     VALUES ${placeholders.join(', ')}
-     RETURNING id, type, severity`,
-    values,
-  );
-  return inserted;
 }
 
 async function listFlags(client, fiscalPeriodId, { status } = {}) {
@@ -127,42 +118,31 @@ async function resolveFlag(client, { id, status, userId, note }) {
 }
 
 async function insertReconciliations(client, rows) {
-  if (rows.length === 0) return [];
-
-  const columns = [
-    'firm_id', 'fiscal_period_id', 'bank_txn_id', 'ledger_txn_id', 'status',
-    'method', 'confidence', 'reasons', 'amount_difference_paisa', 'day_difference',
-  ];
-
-  const values = [];
-  const placeholders = rows.map((row, i) => {
-    const base = i * columns.length;
-    values.push(
+  return insertMany(client, {
+    table: 'reconciliations',
+    columns: [
+      'firm_id', 'fiscal_period_id', 'bank_txn_id', 'ledger_txn_id', 'status',
+      'method', 'confidence', 'reasons', 'amount_difference_paisa', 'day_difference',
+    ],
+    rows,
+    toValues: (row) => [
       row.firmId, row.fiscalPeriodId, row.bankTxnId ?? null, row.ledgerTxnId ?? null,
       row.status, row.method ?? null, row.confidence ?? null,
       JSON.stringify(row.reasons ?? []),
       row.amountDifferencePaisa ?? null, row.dayDifference ?? null,
-    );
-    return `(${columns.map((_, c) => `$${base + c + 1}`).join(', ')})`;
-  });
-
-  const { rows: inserted } = await client.query(
-    `INSERT INTO reconciliations (${columns.join(', ')})
-     VALUES ${placeholders.join(', ')}
-     -- A transaction may appear in at most one match; re-running reconciliation
-     -- must update the verdict rather than fail on the unique index.
-     ON CONFLICT (bank_txn_id) WHERE bank_txn_id IS NOT NULL
+    ],
+    // A transaction may appear in at most one match. Re-running reconciliation
+    // must update the verdict rather than fail on the unique index.
+    conflict: `ON CONFLICT (bank_txn_id) WHERE bank_txn_id IS NOT NULL
      DO UPDATE SET status = EXCLUDED.status,
                    ledger_txn_id = EXCLUDED.ledger_txn_id,
                    method = EXCLUDED.method,
                    confidence = EXCLUDED.confidence,
                    reasons = EXCLUDED.reasons,
                    amount_difference_paisa = EXCLUDED.amount_difference_paisa,
-                   day_difference = EXCLUDED.day_difference
-     RETURNING id, status`,
-    values,
-  );
-  return inserted;
+                   day_difference = EXCLUDED.day_difference`,
+    returning: 'id, status',
+  });
 }
 
 async function listReconciliations(client, fiscalPeriodId) {

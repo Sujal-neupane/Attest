@@ -5,6 +5,8 @@
  * scope only by the ids the caller actually asked about.
  */
 
+const { insertMany } = require('./batch');
+
 const DOCUMENT_COLUMNS = `
   id, client_id AS "clientId", fiscal_period_id AS "fiscalPeriodId", type,
   filename, storage_key AS "storageKey", content_hash AS "contentHash",
@@ -106,38 +108,27 @@ async function markFailed(client, id, reason) {
  * network latency rather than by work.
  */
 async function insertTransactions(client, rows) {
-  if (rows.length === 0) return [];
-
-  const columns = [
-    'firm_id', 'client_id', 'fiscal_period_id', 'document_id', 'source', 'kind',
-    'txn_date', 'description', 'party', 'invoice_number', 'reference',
-    'amount_paisa', 'direction', 'source_ref',
-    // What the client's books SAY — never overwritten by the tax engine.
-    'reported_net_paisa', 'reported_vat_paisa', 'vat_applicable',
-    'party_pan', 'bs_date_label',
-  ];
-
-  const values = [];
-  const placeholders = rows.map((row, i) => {
-    const base = i * columns.length;
-    values.push(
+  return insertMany(client, {
+    table: 'transactions',
+    columns: [
+      'firm_id', 'client_id', 'fiscal_period_id', 'document_id', 'source', 'kind',
+      'txn_date', 'description', 'party', 'invoice_number', 'reference',
+      'amount_paisa', 'direction', 'source_ref',
+      // What the client's books SAY — never overwritten by the tax engine.
+      'reported_net_paisa', 'reported_vat_paisa', 'vat_applicable',
+      'party_pan', 'bs_date_label',
+    ],
+    rows,
+    toValues: (row) => [
       row.firmId, row.clientId, row.fiscalPeriodId, row.documentId,
       row.source, row.kind, row.txnDate, row.description ?? '',
       row.party ?? null, row.invoiceNumber ?? null, row.reference ?? null,
       row.amountPaisa, row.direction, row.sourceRef ?? {},
       row.reportedNetPaisa ?? null, row.reportedVatPaisa ?? null,
       row.vatApplicable ?? true, row.partyPan ?? null, row.bsDateLabel ?? null,
-    );
-    return `(${columns.map((_, c) => `$${base + c + 1}`).join(', ')})`;
+    ],
+    returning: 'id, txn_date AS "txnDate", amount_paisa AS "amountPaisa"',
   });
-
-  const { rows: inserted } = await client.query(
-    `INSERT INTO transactions (${columns.join(', ')})
-     VALUES ${placeholders.join(', ')}
-     RETURNING id, txn_date AS "txnDate", amount_paisa AS "amountPaisa"`,
-    values,
-  );
-  return inserted;
 }
 
 async function listTransactionsForPeriod(client, fiscalPeriodId, { source, limit = 1000 } = {}) {
@@ -164,6 +155,15 @@ async function listTransactionsForPeriod(client, fiscalPeriodId, { source, limit
   return rows;
 }
 
+/** Total transactions in a period, used to detect a truncated read. */
+async function countTransactionsForPeriod(client, fiscalPeriodId) {
+  const { rows } = await client.query(
+    `SELECT count(*)::int AS count FROM transactions WHERE fiscal_period_id = $1`,
+    [fiscalPeriodId],
+  );
+  return rows[0].count;
+}
+
 /** How many transactions a document produced, used to make re-parsing safe. */
 async function countTransactionsForDocument(client, documentId) {
   const { rows } = await client.query(
@@ -183,5 +183,6 @@ module.exports = {
   markFailed,
   insertTransactions,
   listTransactionsForPeriod,
+  countTransactionsForPeriod,
   countTransactionsForDocument,
 };

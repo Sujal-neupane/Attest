@@ -173,6 +173,26 @@ run('the parsed transactions come back as money, not as strings', async () => {
   assert.equal(payment.documentFilename, 'statement.csv');
 });
 
+run('a truncated transaction list says so in its headers', async () => {
+  const res = await fetch(`${base}/periods/${periodId}/transactions?limit=1`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const rows = await res.json();
+
+  assert.equal(rows.length, 1);
+  assert.equal(res.headers.get('x-total-count'), '2', 'the real size must be reported');
+  assert.equal(res.headers.get('x-returned-count'), '1');
+  assert.equal(res.headers.get('x-truncated'), 'true');
+});
+
+run('an untruncated list is not marked truncated', async () => {
+  const res = await fetch(`${base}/periods/${periodId}/transactions`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  await res.json();
+  assert.equal(res.headers.get('x-truncated'), null);
+});
+
 run('every transaction can be traced back to the line it came from', async () => {
   const { body } = await json('GET', `/periods/${periodId}/transactions`, { token });
   for (const txn of body) {
