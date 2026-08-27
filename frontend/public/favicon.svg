@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Attest">
+  <title>Attest</title>
+  <!-- The seal: certification is something applied after review, never before. -->
+  <rect x="1.5" y="1.5" width="29" height="29" rx="9.5" fill="#0F1518"/>
+  <!-- The rule: the ledger line, and the signature line. Muted, because the
+       record is the input, not the achievement. -->
+  <line x1="9.1" y1="22.6" x2="22.9" y2="22.6" stroke="#FAF9F6" stroke-opacity="0.4"
+        stroke-width="1.8" stroke-linecap="round"/>
+  <!-- The check, made ON the rule — a mark on a line is a signature. It is the
+       only coloured element in the mark, because attestation is the only thing
+       that matters. -->
+  <path d="M11.9 15.1 L16 19.5 L22.4 9.4" fill="none" stroke="#5FA89C"
+        stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

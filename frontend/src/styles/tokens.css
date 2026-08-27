@@ -1,0 +1,220 @@
+/**
+ * Attest design tokens.
+ *
+ * The rationale for every value here is in docs/BRAND.md. The short version:
+ * this is a tool people stare at for six hours during filing season, so the
+ * surface is warm paper neutral and saturation is a scarce resource spent only
+ * on meaning. If a colour in this file is not carrying information, it is a bug.
+ */
+
+:root {
+  /* ---- Neutrals: the warm paper ramp -------------------------------------
+     Warm greys (a touch of yellow), never blue-grey. Blue-grey reads as
+     "tech dashboard"; warm grey reads as paper, ledger, document.            */
+  --paper: #faf9f6;
+  --surface: #ffffff;
+  --surface-sunken: #f3f1ec;
+  --surface-raised: #ffffff;
+
+  --line: #e5e1d9;
+  --line-strong: #cfc9bd;
+
+  --ink-400: #8a8578; /* placeholder, disabled */
+  --ink-600: #6b6659; /* secondary text, labels, metadata */
+  --ink-800: #3a3730; /* body text */
+  --ink-900: #1a1815; /* headings, figures */
+
+  /* ---- Accent: verdigris --------------------------------------------------
+     Desaturated blue-green: the colour of aged copper seals and ledger ink.
+     Chosen partly because it stays distinguishable from the semantic red and
+     amber under deuteranopia and protanopia, which a conventional "success
+     green" does not. In a product whose job is signalling needs-attention vs
+     fine, that is a correctness property, not a taste one.                   */
+  --accent: #2f7a6f;
+  --accent-hover: #26645b;
+  --accent-active: #1e4f48;
+  --accent-soft: #e8f1ef; /* tinted backgrounds, selected rows */
+  --accent-line: #b9d6d0;
+  --accent-on: #ffffff; /* text on top of --accent */
+
+  /* ---- Severity: used ONLY on flags and status ---------------------------
+     Never decorative. Never on a button that is not about the thing it means.
+     That discipline is what makes a red dot mean something.                  */
+  --severity-high: #a33a2e;
+  --severity-high-soft: #fbecea;
+  --severity-high-line: #edc9c3;
+
+  --severity-medium: #9a6100;
+  --severity-medium-soft: #fdf2e0;
+  --severity-medium-line: #ecd6ac;
+
+  /* Low is deliberately near-neutral: a low-severity flag does not deserve to
+     pull the eye off a high one. */
+  --severity-low: #5b6b72;
+  --severity-low-soft: #eff2f3;
+  --severity-low-line: #d4dbde;
+
+  --resolved: #6b6659;
+  --resolved-soft: #f3f1ec;
+
+  /* ---- Focus -------------------------------------------------------------
+     A single, loud, never-suppressed focus ring. This product will be worked
+     entirely from the keyboard by anyone who uses it daily.                  */
+  --focus-ring: #2f7a6f;
+  --focus-ring-offset: var(--paper);
+
+  /* ---- Type --------------------------------------------------------------
+     Serif for display (institution, letterhead, permanence).
+     Inter for UI (neutral, unambiguous 1/l/I and 0/O at small sizes).        */
+  --font-display: 'Source Serif 4', 'Source Serif Pro', Georgia, serif;
+  --font-ui: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* 1.25 ratio, capped at seven steps — a review tool needs five sizes, not
+     twelve, and every extra step is one more chance to be inconsistent. */
+  --text-2xs: 0.75rem;   /* 12 */
+  --text-xs: 0.8125rem;  /* 13 */
+  --text-sm: 0.875rem;   /* 14 */
+  --text-base: 1rem;     /* 16 */
+  --text-lg: 1.25rem;    /* 20 */
+  --text-xl: 1.5625rem;  /* 25 */
+  --text-2xl: 2rem;      /* 32 */
+  --text-3xl: 2.5rem;    /* 40 */
+
+  --leading-tight: 1.2;
+  --leading-snug: 1.4;
+  --leading-normal: 1.6;
+
+  /* ---- Space: an 8px grid, with a 4px half-step for inline gaps ----------
+     Nothing is ever 13px because it looked right.                            */
+  --space-1: 0.25rem; /* 4  */
+  --space-2: 0.5rem;  /* 8  */
+  --space-3: 0.75rem; /* 12 */
+  --space-4: 1rem;    /* 16 */
+  --space-5: 1.5rem;  /* 24 */
+  --space-6: 2rem;    /* 32 */
+  --space-7: 3rem;    /* 48 */
+  --space-8: 4rem;    /* 64 */
+
+  /* ---- Radius ------------------------------------------------------------ */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
+
+  /* ---- Elevation ---------------------------------------------------------
+     One step only. Depth here is a navigational cue, not decoration, so there
+     is no floating stack of z-layers to get lost in.                         */
+  --shadow-card: 0 1px 2px rgb(26 24 21 / 0.04);
+  --shadow-panel: 0 8px 24px -8px rgb(26 24 21 / 0.16);
+
+  /* ---- Motion ------------------------------------------------------------
+     120–180ms, ease-out, and only ever to confirm a state change.            */
+  --duration-fast: 120ms;
+  --duration-base: 160ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* ---- Density: comfortable by default, compact for the preparer working
+     three hundred rows. Every accounting tool gets asked for this.           */
+  --row-height: 44px;
+  --control-height: 40px; /* Fitts: no primary target below 40px */
+  --tap-target-min: 44px;
+}
+
+[data-density='compact'] {
+  --row-height: 32px;
+  --control-height: 32px;
+}
+
+/**
+ * Dark theme — not an inversion. Same warm hue family (#14120f grounds, not
+ * #000), accent lifted to hold the same perceptual lightness against a dark
+ * ground, every contrast ratio preserved. Preparers work late during filing
+ * season; this is a working requirement, not a preference.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --paper: #14120f;
+    --surface: #1c1a16;
+    --surface-sunken: #191713;
+    --surface-raised: #23201b;
+
+    --line: #2e2a24;
+    --line-strong: #423d34;
+
+    --ink-400: #7a746a;
+    --ink-600: #a49d90;
+    --ink-800: #d6d0c4;
+    --ink-900: #f2eee5;
+
+    --accent: #5fa89c;
+    --accent-hover: #74b8ad;
+    --accent-active: #8ac6bc;
+    --accent-soft: #1b2a28;
+    --accent-line: #2f4a46;
+    --accent-on: #0f1518;
+
+    --severity-high: #e08a7d;
+    --severity-high-soft: #2c1c19;
+    --severity-high-line: #4d2f29;
+
+    --severity-medium: #ddad5e;
+    --severity-medium-soft: #2a2115;
+    --severity-medium-line: #4a3a20;
+
+    --severity-low: #9aabb2;
+    --severity-low-soft: #1d2225;
+    --severity-low-line: #333c40;
+
+    --resolved: #a49d90;
+    --resolved-soft: #23201b;
+
+    --focus-ring: #5fa89c;
+    --focus-ring-offset: var(--paper);
+
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-panel: 0 8px 24px -8px rgb(0 0 0 / 0.6);
+  }
+}
+
+/* Explicit choice always wins over the system preference, in both directions. */
+:root[data-theme='dark'] {
+  --paper: #14120f;
+  --surface: #1c1a16;
+  --surface-sunken: #191713;
+  --surface-raised: #23201b;
+
+  --line: #2e2a24;
+  --line-strong: #423d34;
+
+  --ink-400: #7a746a;
+  --ink-600: #a49d90;
+  --ink-800: #d6d0c4;
+  --ink-900: #f2eee5;
+
+  --accent: #5fa89c;
+  --accent-hover: #74b8ad;
+  --accent-active: #8ac6bc;
+  --accent-soft: #1b2a28;
+  --accent-line: #2f4a46;
+  --accent-on: #0f1518;
+
+  --severity-high: #e08a7d;
+  --severity-high-soft: #2c1c19;
+  --severity-high-line: #4d2f29;
+
+  --severity-medium: #ddad5e;
+  --severity-medium-soft: #2a2115;
+  --severity-medium-line: #4a3a20;
+
+  --severity-low: #9aabb2;
+  --severity-low-soft: #1d2225;
+  --severity-low-line: #333c40;
+
+  --resolved: #a49d90;
+  --resolved-soft: #23201b;
+
+  --focus-ring: #5fa89c;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-panel: 0 8px 24px -8px rgb(0 0 0 / 0.6);
+}
