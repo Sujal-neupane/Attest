@@ -8,9 +8,11 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "test": "node --test \"tests/**/*.test.js\"",
-    "test:watch": "node --test --watch tests/",
-    "test:coverage": "node --test --experimental-test-coverage tests/",
-    "lint": "eslint src tests"
+    "test:watch": "node --test --watch \"tests/**/*.test.js\"",
+    "test:coverage": "node --test --experimental-test-coverage \"tests/**/*.test.js\"",
+    "lint": "eslint src tests",
+    "test:db": "bash db/tests/run.sh",
+    "test:all": "npm run test && npm run test:db"
   },
   "engines": {
     "node": ">=20"
