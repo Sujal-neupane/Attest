@@ -10,6 +10,7 @@ const express = require('express');
 const { z } = require('zod');
 
 const reviewService = require('../services/review.service');
+const exportService = require('../services/export.service');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 
@@ -73,6 +74,35 @@ router.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     res.json(await reviewService.vatSummary(req.user, uuid.parse(req.params.id)));
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Exports
+// ---------------------------------------------------------------------------
+
+const EXPORTS = {
+  'vat-summary': exportService.exportVatSummary,
+  'review-report': exportService.exportReviewReport,
+  transactions: exportService.exportTransactions,
+};
+
+router.get(
+  '/periods/:id/export/:kind',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    const kind = z.enum(Object.keys(EXPORTS)).parse(req.params.kind);
+
+    const file = await EXPORTS[kind](req.user, id, requestContext(req));
+
+    res.setHeader('Content-Type', file.contentType);
+    // attachment, not inline: this is working paper the accountant takes away,
+    // unlike a source document which is read beside the finding.
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    // A client's financial figures must not sit in a proxy or browser cache.
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(file.body);
   }),
 );
 

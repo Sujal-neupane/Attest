@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="#status"><img alt="status" src="https://img.shields.io/badge/status-in%20development-9A6100"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-224%20passing-2F7A6F">
+  <img alt="tests" src="https://img.shields.io/badge/tests-259%20passing-2F7A6F">
   <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-2F7A6F">
   <img alt="postgres" src="https://img.shields.io/badge/postgres-16-2F7A6F">
 </p>
@@ -223,7 +223,7 @@ npm --prefix backend run test:db
 
 ## Status
 
-Built and tested — **224 tests passing** (212 Node, 12 database):
+Built and tested — **259 tests passing** (226 backend, 21 frontend, 12 database):
 
 - [x] Deterministic financial core — money, VAT, TDS, reconciliation, anomalies (41)
 - [x] Database schema with row-level security, append-only audit log (12)
@@ -237,7 +237,8 @@ Built and tested — **224 tests passing** (212 Node, 12 database):
 - [x] CI on every push: unit tests, database tests, lint, dependency audit
 - [x] Brand and design system
 
-- [x] React review sheet — keyboard-driven, with source click-through
+- [x] React review sheet — keyboard-driven, with source click-through (21)
+- [x] CSV export — VAT summary, review report, full ledger (9)
 
 In progress:
 - [ ] LLM extraction with tool calling

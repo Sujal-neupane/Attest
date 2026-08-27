@@ -78,6 +78,10 @@ async function listFlags(client, fiscalPeriodId, { status } = {}) {
             u.full_name AS "resolvedByName",
             t.txn_date AS "txnDate", t.amount_paisa AS "amountPaisa",
             t.party, t.invoice_number AS "invoiceNumber",
+            -- The date in the client's own calendar. The review sheet shows both
+            -- so nobody converts in their head; without this the card silently
+            -- rendered the Gregorian date alone.
+            t.bs_date_label AS "bsDateLabel",
             t.document_id AS "documentId", t.source_ref AS "sourceRef",
             d.filename AS "documentFilename"
        FROM flags f

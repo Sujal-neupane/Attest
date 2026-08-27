@@ -162,11 +162,38 @@ export const api = {
 };
 
 /**
+ * Download an export.
+ *
+ * Goes through the authenticated client rather than a plain <a href>, because
+ * the export route requires a bearer token — a link the browser followed on its
+ * own would arrive unauthenticated and 401.
+ */
+export async function downloadExport(periodId, kind) {
+  const res = await raw(`/periods/${periodId}/export/${kind}`, {});
+  if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null));
+
+  // The filename the server chose is authoritative — it carries the period
+  // label, which is what makes a folder of these tell you anything.
+  const disposition = res.headers.get('content-disposition') || '';
+  const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? `attest-${kind}.csv`;
+
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  // Revoked immediately: the blob holds a client's financial figures, and the
+  // download has already been handed to the browser by this point.
+  URL.revokeObjectURL(url);
+  return filename;
+}
+
+/**
  * Fetch a document's original bytes as a blob URL the browser can display.
  *
- * Goes through the same authenticated client rather than being dropped into an
- * <img src> or <iframe src>, because the content route requires a bearer token
- * — a signed link alone is not enough to open a client's bank statement.
+ * Also authenticated, for the same reason: the content route needs a bearer
+ * token, so this cannot be dropped straight into an <iframe src>. A signed link
+ * alone is not enough to open a client's bank statement.
  */
 export async function fetchSourceBlobUrl(documentId) {
   const { url } = await api.sourceUrl(documentId);

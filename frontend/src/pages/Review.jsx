@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { api, fetchSourceBlobUrl } from '../api/client.js';
+import { api, fetchSourceBlobUrl, downloadExport } from '../api/client.js';
 import FlagCard from '../components/FlagCard.jsx';
 import VatSummary from '../components/VatSummary.jsx';
 import SourceViewer from '../components/SourceViewer.jsx';
+import TransactionTable from '../components/TransactionTable.jsx';
+import ExportBar from '../components/ExportBar.jsx';
 import { pluralise } from '../lib/money.js';
 
 /**
@@ -38,6 +40,8 @@ export default function Review() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showResolved, setShowResolved] = useState(false);
+  const [tab, setTab] = useState('findings');
+  const [transactions, setTransactions] = useState(null);
 
   const listRef = useRef(null);
 
@@ -65,6 +69,14 @@ export default function Review() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Fetched only when the tab is opened. A period can hold thousands of rows,
+  // and loading them for a reviewer who never leaves the findings list is
+  // bandwidth spent on nothing.
+  useEffect(() => {
+    if (tab !== 'transactions' || transactions) return;
+    api.transactions(periodId).then(setTransactions).catch((err) => setError(err.message));
+  }, [tab, transactions, periodId]);
 
   const visible = useMemo(
     () => (showResolved ? flags : flags.filter((f) => f.status === 'open')),
@@ -205,6 +217,31 @@ export default function Review() {
           </div>
         </header>
 
+        <div className="tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'findings'}
+            className={`tab ${tab === 'findings' ? 'tab--on' : ''}`}
+            onClick={() => setTab('findings')}
+          >
+            Findings {openCount > 0 && <span className="tab__count">{openCount}</span>}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'transactions'}
+            className={`tab ${tab === 'transactions' ? 'tab--on' : ''}`}
+            onClick={() => setTab('transactions')}
+          >
+            Transactions
+          </button>
+        </div>
+
+        {tab === 'transactions' ? (
+          <TransactionTable transactions={transactions} />
+        ) : (
+        <>
         <div className="review__toolbar">
           <label className="toggle">
             <input
@@ -252,10 +289,13 @@ export default function Review() {
             ))}
           </div>
         )}
+        </>
+        )}
       </div>
 
       <aside className="review__side">
         <VatSummary summary={summary} />
+        <ExportBar periodId={periodId} download={downloadExport} />
       </aside>
 
       {source && <SourceViewer source={source} onClose={closeSource} />}

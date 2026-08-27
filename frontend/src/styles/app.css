@@ -606,3 +606,116 @@ kbd {
     position: static;
   }
 }
+
+/* ---- Tabs, table and exports ------------------------------------------- */
+
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: var(--space-4);
+}
+
+.tab {
+  min-height: var(--control-height);
+  padding: 0 var(--space-4);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--ink-600);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.tab--on {
+  color: var(--ink-900);
+  border-bottom-color: var(--accent);
+  font-weight: 500;
+}
+
+.tab__count {
+  margin-left: var(--space-2);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--surface-sunken);
+  font-size: var(--text-2xs);
+}
+
+/* Wide content scrolls inside its own container; the page body never does. */
+.table-wrap { overflow-x: auto; }
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  text-align: left;
+  font-weight: 500;
+  color: var(--ink-600);
+  background: var(--surface-sunken);
+  padding: var(--space-2) var(--space-3);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--line);
+  height: var(--row-height);
+}
+
+.table__num { text-align: right; }
+.table__source { font-size: var(--text-2xs); white-space: nowrap; }
+
+/* A reported figure that disagrees with the computed one — the thing the
+   accountant is looking for, marked in the row rather than left to be spotted
+   by comparing two columns. */
+.table__row--flagged { background: var(--severity-medium-soft); }
+
+.chip {
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-2xs);
+  background: var(--surface-sunken);
+  color: var(--ink-600);
+}
+
+.chip--ledger { background: var(--accent-soft); color: var(--accent); }
+
+.exports {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.exports h3 { font-size: var(--text-sm); margin-bottom: var(--space-3); }
+
+.export {
+  display: block;
+  width: 100%;
+  min-height: var(--control-height);
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.export:hover:not(:disabled) { background: var(--surface-sunken); }
+.export:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.export__label { display: block; font-size: var(--text-sm); color: var(--ink-800); }
+.export__hint { display: block; font-size: var(--text-2xs); color: var(--ink-400); }
+
+.exports__note {
+  margin-top: var(--space-3);
+  font-size: var(--text-2xs);
+  color: var(--ink-400);
+}

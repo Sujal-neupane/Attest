@@ -204,6 +204,16 @@ run('flags arrive sorted so the reviewer lands on what matters', async () => {
   assert.deepEqual(severities, [...severities].sort((a, b) => a - b));
 });
 
+run('a flag shows the date in the calendar the client actually used', async () => {
+  // The register in this fixture is Gregorian, so the label is null — but the
+  // FIELD must be present, because the card reads it and a missing key renders
+  // as nothing at all rather than as an error anyone would notice.
+  for (const flag of await flags()) {
+    if (!flag.transactionId) continue;
+    assert.ok('bsDateLabel' in flag, 'the flags payload must carry bsDateLabel');
+  }
+});
+
 run('every flag carries provenance back to a source document', async () => {
   for (const flag of await flags()) {
     if (!flag.transactionId) continue;
@@ -331,6 +341,110 @@ run("another firm cannot see or resolve this firm's flags", async () => {
     body: { status: 'accepted', note: 'not mine to accept' },
   });
   assert.equal(attempt.status, 404, "another firm's flag must be invisible, not merely forbidden");
+});
+
+// ---------------------------------------------------------------------------
+// Exports
+// ---------------------------------------------------------------------------
+
+async function download(kind) {
+  const res = await fetch(`${base}/periods/${periodId}/export/${kind}`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  return { res, text: await res.text() };
+}
+
+run('the VAT summary exports as a spreadsheet the accountant can open', async () => {
+  const { res, text } = await download('vat-summary');
+
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /text\/csv/);
+  assert.match(res.headers.get('content-disposition'), /attachment; filename="attest-vat-summary/);
+  assert.match(res.headers.get('cache-control'), /no-store/);
+
+  // A UTF-8 BOM, or Excel renders every Devanagari party name as mojibake.
+  //
+  // Checked as raw BYTES, not via res.text(): the Fetch spec strips a leading
+  // BOM when decoding, so asserting on the decoded string tests the decoder
+  // rather than what actually goes down the wire to the accountant's Excel.
+  const bytes = new Uint8Array(
+    await (await fetch(`${base}/periods/${periodId}/export/vat-summary`, {
+      headers: { authorization: `Bearer ${token}` },
+    })).arrayBuffer(),
+  );
+  assert.deepEqual([bytes[0], bytes[1], bytes[2]], [0xef, 0xbb, 0xbf]);
+  // 715,000 paisa = Rs. 7,150.00. The export writes rupees as a bare number so
+  // the column sums in a spreadsheet without anyone stripping symbols first.
+  assert.match(text, /Output VAT,7150\.00/);
+  assert.match(text, /Net VAT payable,7150\.00/);
+  assert.match(text, /Taxable sales,55000\.00/);
+});
+
+run('the exported summary refuses to look final', async () => {
+  const { text } = await download('vat-summary');
+  assert.match(text, /not filed/i);
+  assert.match(text, /not final until an accountant/);
+  // Open findings are stated in the export, not just on screen.
+  assert.match(text, /Open findings,/);
+});
+
+run('the review report records every finding and every human decision', async () => {
+  const { res, text } = await download('review-report');
+  assert.equal(res.status, 200);
+
+  assert.match(text, /Severity,Type,Status,Finding/);
+  assert.match(text, /Decided by,Decided on,Reason given/);
+  // The reason an accountant wrote must survive into the artefact that answers
+  // "why is this figure what it is" months later.
+  assert.match(text, /INV-004 was cancelled/);
+  assert.match(text, /remain open|Every finding has been reviewed/);
+});
+
+run('a party name that looks like a formula cannot execute in Excel', async () => {
+  // CSV injection: a cell starting with = + - or @ is run as a formula by
+  // Excel and LibreOffice. A client controls party names, so this is reachable.
+  const { _internals } = require('../src/services/export.service');
+  for (const hostile of ['=cmd|calc', '+1+1', '-2+3', '@SUM(A1)']) {
+    assert.ok(
+      _internals.csvField(hostile).startsWith("'"),
+      `${hostile} must be neutralised before it reaches a spreadsheet`,
+    );
+  }
+  // A legitimate value is left exactly as written.
+  assert.equal(_internals.csvField('Sharma Traders'), 'Sharma Traders');
+  assert.equal(_internals.csvField('Sharma "Traders", Lalitpur'), '"Sharma ""Traders"", Lalitpur"');
+});
+
+run('the transaction export puts reported and computed figures side by side', async () => {
+  const { text } = await download('transactions');
+  assert.match(text, /Reported net,Reported VAT,Computed net,Computed VAT/);
+  // The whole point of storing them separately is that someone can compare
+  // them, so the export must not collapse the two into one column.
+  assert.match(text, /INV-005/);
+});
+
+run('every export is written to the audit trail', async () => {
+  const rows = fixture.psql(['-tA', '-c',
+    "SELECT detail->>'kind' FROM audit_log WHERE action = 'export' ORDER BY created_at"]);
+  const kinds = rows.trim().split('\n');
+  for (const kind of ['vat_summary', 'review_report', 'transactions']) {
+    assert.ok(kinds.includes(kind), `${kind} export must be audited`);
+  }
+});
+
+run('another firm cannot export this period', async () => {
+  const stranger = await json('POST', '/auth/register', {
+    body: {
+      firmName: 'Rival Exporters',
+      fullName: 'Someone Else',
+      email: 'rival-export@example.com',
+      password: 'another-sufficiently-long-pw',
+    },
+  });
+  const res = await fetch(`${base}/periods/${periodId}/export/vat-summary`, {
+    headers: { authorization: `Bearer ${stranger.body.accessToken}` },
+  });
+  assert.equal(res.status, 404);
 });
 
 run('reconciling a period with nothing parsed says so plainly', async () => {
