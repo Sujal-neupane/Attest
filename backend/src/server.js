@@ -33,6 +33,16 @@ try {
   process.exit(1);
 }
 
+// On a free host a background worker is a paid service, so the loop can run
+// here instead. The database still owns the concurrency guarantee, so this is
+// a deployment choice rather than a behavioural one.
+let inlineWorker = null;
+if (env.WORKER_MODE === 'inline') {
+  const { startInlineWorker } = require('./workers/inline');
+  inlineWorker = startInlineWorker({ store: storageConfig.get().store });
+  console.log('Parse worker running INLINE — parsing shares this process with the API');
+}
+
 const app = createApp();
 
 const server = app.listen(env.PORT, () => {
@@ -60,6 +70,7 @@ async function shutdown(signal) {
 
   server.close(async () => {
     clearTimeout(force);
+    inlineWorker?.stop();
     await db.close().catch(() => {});
     process.exit(0);
   });

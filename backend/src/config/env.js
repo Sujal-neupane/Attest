@@ -31,6 +31,23 @@ const schema = z.object({
   REFRESH_TOKEN_TTL: z.string().default('30d'),
 
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
+
+  /**
+   * Where the parse worker runs.
+   *
+   *   'separate' (default)  a process of its own — the right answer, and what
+   *                         docker-compose and any paid deployment use
+   *   'inline'              inside the API process
+   *
+   * Inline exists because a background worker is a PAID service on every free
+   * host worth using, and a portfolio deployment that costs $7/month to keep
+   * alive is a portfolio deployment that gets switched off. The trade-off is
+   * real and is documented in docs/DEPLOY.md: parsing competes with requests
+   * for the same event loop, so a large statement makes the API slow while it
+   * runs. At a few documents a day that is invisible; at a hundred it is not,
+   * and the answer then is to stop paying nothing.
+   */
+  WORKER_MODE: z.enum(['separate', 'inline']).default('separate'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
   // Where encrypted documents live, and the keys that protect them.

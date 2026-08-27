@@ -320,6 +320,13 @@ rather than a demo.
 docker compose up --build     # database, API and worker, locally
 ```
 
+It deploys on a genuinely free stack — Neon, Cloudflare R2, Render and Vercel —
+by running the parse loop inside the API process (`WORKER_MODE=inline`), because
+a background worker is a paid service on every free host. The trade-off is
+latency, not correctness: the claim is still `SELECT ... FOR UPDATE SKIP
+LOCKED`, so two inline workers on two instances still cannot double-process a
+document, and a test proves it.
+
 ## Running the whole thing
 
 ```bash

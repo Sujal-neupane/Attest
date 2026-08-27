@@ -59,7 +59,76 @@ npm --prefix frontend run dev           # terminal 3
 
 ---
 
-## Render (API, worker, database)
+## Deploying for free — what actually is, and what isn't
+
+Worth stating plainly, because "free tier" is doing a lot of work on most
+pricing pages:
+
+| Piece | Free? | The catch |
+|---|---|---|
+| Frontend — Vercel Hobby | **Yes** | Non-commercial use |
+| API — Render web service | **Yes** | Sleeps after ~15 min idle; first request then takes 30–50s |
+| **Worker — Render background worker** | **No — $7/mo** | Background workers have no free instance type |
+| Database — Render Postgres | **No, effectively** | The free instance is **deleted after 30 days** |
+| Database — Neon | **Yes** | 0.5 GB, permanent, no card |
+| Storage — Cloudflare R2 | **Yes** | 10 GB, no egress fees |
+| Storage — Supabase | **Yes** | 1 GB, no card |
+| AI invoice reading — Anthropic | **No** | Optional; everything else works without a key |
+
+Two of those would quietly cost you money or data, so the free path avoids both:
+
+**Use Neon, not Render's database.** A free Render Postgres is deleted 30 days
+after you create it. A portfolio piece that dies a month after you link it on
+your CV is worse than one that was never deployed.
+
+**Run the worker inline.** Set `WORKER_MODE=inline` and the parse loop runs
+inside the API process instead of a $7/month background worker.
+
+That is a real trade-off, not a free lunch. Parsing then competes with requests
+for the same event loop, so a large statement makes the API slow while it runs.
+At a few documents a day it is invisible; at a hundred it is not. What it does
+**not** cost you is correctness: the claim is still
+`SELECT ... FOR UPDATE SKIP LOCKED`, so the guarantee that a document is parsed
+exactly once lives in the database, not in the process model — which is why
+changing the process model is safe at all. Two inline workers on two instances
+still cannot double-process a document, and there is a test that proves it.
+
+### The free stack, end to end
+
+1. **Neon** — create a project, copy the connection string
+2. **Cloudflare R2** — create a bucket, create an API token (Object Read & Write)
+3. **Render** — new **Web Service** (not a Blueprint, which would create the
+   paid worker), build with `backend/Dockerfile`, and set:
+
+```
+NODE_ENV=production
+WORKER_MODE=inline
+DATABASE_URL=<the Neon connection string>
+DATABASE_SSL=true
+JWT_ACCESS_SECRET=<openssl rand -base64 48>
+JWT_REFRESH_SECRET=<a different one>
+STORAGE_BACKEND=s3
+STORAGE_ENDPOINT=https://<account>.r2.cloudflarestorage.com
+STORAGE_BUCKET=attest-documents
+STORAGE_REGION=auto
+STORAGE_ACCESS_KEY_ID=<from R2>
+STORAGE_SECRET_ACCESS_KEY=<from R2>
+STORAGE_ENCRYPTION_KEY=<openssl rand -base64 32>
+STORAGE_SIGNING_SECRET=<openssl rand -base64 32>
+CORS_ORIGIN=https://<your-app>.vercel.app
+```
+
+4. **Vercel** — import the repo, root directory `frontend`, set
+   `VITE_API_URL` to the Render URL
+5. Seed the demo from the Render shell: `node db/seed/demo.js`
+
+`STORAGE_ENCRYPTION_KEY` only needs to be set once here, because there is only
+one process. The moment you split the worker out again, it must be identical on
+both — see the top of this file.
+
+---
+
+## Render with a paid worker (the better architecture)
 
 `render.yaml` is a blueprint — point Render at the repo and it creates all three.
 
