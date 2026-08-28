@@ -174,6 +174,24 @@ Then seed the demo, once, from the Render shell:
 node db/seed/demo.js
 ```
 
+### Document storage without a payment card
+
+Every S3-compatible provider — R2 included — asks for a card before it will give
+you a bucket. `STORAGE_BACKEND=postgres` removes the dependency entirely:
+documents are stored as encrypted rows in the database you already have.
+
+The bytes are the same AES-256-GCM ciphertext they would be in a bucket, so a
+database dump or a backup does not expose a client's statement, and the rows are
+behind the same row-level security as everything else.
+
+It is the zero-account option, not the recommended one. A database is a poor
+blob store at scale — every read pulls the whole object through the connection,
+and backups grow with the documents rather than with the ledger. At kilobyte
+invoices and a 0.5 GB free Neon project that is thousands of documents, which is
+further than a portfolio deployment will ever get. When it stops being true,
+switch `STORAGE_BACKEND` to `s3` and add the bucket credentials; nothing else
+changes.
+
 ### Object storage
 
 The API and the worker are separate processes. A local disk works only while

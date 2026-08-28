@@ -62,7 +62,12 @@ const schema = z.object({
   // 'local' writes encrypted files to disk; 's3' to any S3-compatible bucket.
   // Local is fine for one box and wrong for two — the API and worker are
   // separate processes, and on separate hosts they do not share a disk.
-  STORAGE_BACKEND: z.enum(['local', 's3']).default('local'),
+  // 'local'    encrypted files on disk — development, and any single box with
+  //            a persistent one
+  // 'postgres' encrypted rows in the database — no object storage account
+  //            needed, which matters when every provider wants a card
+  // 's3'       any S3-compatible bucket — the right answer at scale
+  STORAGE_BACKEND: z.enum(['local', 'postgres', 's3']).default('local'),
   STORAGE_BUCKET: z.string().optional(),
   STORAGE_ENDPOINT: z.string().optional(),
   STORAGE_REGION: z.string().default('us-east-1'),

@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="#status"><img alt="status" src="https://img.shields.io/badge/status-in%20development-9A6100"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-363%20passing-2F7A6F">
+  <img alt="tests" src="https://img.shields.io/badge/tests-393%20passing-2F7A6F">
   <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-2F7A6F">
   <img alt="postgres" src="https://img.shields.io/badge/postgres-16-2F7A6F">
 </p>
@@ -278,7 +278,7 @@ npm --prefix backend run test:db
 
 ## Status
 
-Built and tested — **363 tests passing** (330 backend, 21 frontend, 12 database):
+Built and tested — **393 tests passing** (360 backend, 21 frontend, 12 database):
 
 - [x] Deterministic financial core — money, VAT, TDS, reconciliation, anomalies (41)
 - [x] Database schema with row-level security, append-only audit log (12)

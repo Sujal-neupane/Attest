@@ -12,6 +12,7 @@ const path = require('node:path');
 const env = require('./env');
 const storage = require('../services/storage');
 const { createS3Storage } = require('../services/storage/s3');
+const { createPostgresStorage } = require('../services/storage/postgres');
 
 /**
  * In production the encryption key is explicit and separate from every signing
@@ -57,6 +58,19 @@ function get() {
 
   const key = resolveKey();
   const signer = storage.createSigner(resolveSigningSecret());
+
+  if (env.STORAGE_BACKEND === 'postgres') {
+    cached = {
+      store: createPostgresStorage({
+        encrypt: storage._internals.encrypt,
+        decrypt: storage._internals.decrypt,
+        key,
+      }),
+      signer,
+      backend: 'postgres',
+    };
+    return cached;
+  }
 
   if (env.STORAGE_BACKEND === 's3') {
     // Missing configuration throws here, at startup, rather than on the first
