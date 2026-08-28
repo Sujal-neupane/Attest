@@ -156,7 +156,9 @@ async function unscoped(text, params) {
  * situation. It is the normal one.
  */
 async function assertRowSecurityApplies() {
-  const { rows } = await pool.query(
+  let rows;
+  try {
+    ({ rows } = await pool.query(
     `WITH me AS (SELECT oid, rolname, rolsuper, rolbypassrls
                    FROM pg_roles WHERE rolname = current_user),
      inherited AS (
@@ -174,8 +176,23 @@ async function assertRowSecurityApplies() {
                FROM pg_class c
                JOIN pg_namespace n ON n.oid = c.relnamespace
               WHERE n.nspname = 'public' AND c.relname = 'jobs') AS jobs_owner
-       FROM me`,
-  );
+       FROM me`));
+  } catch (err) {
+    // A connection failure is not a security verdict, and reporting it as one
+    // is actively misleading: the deploy log read "Refusing to start: password
+    // authentication failed", which looks like the guard rejected the role on
+    // purpose rather than never having reached the database at all.
+    throw new Error(
+      `Could not connect to the database to check its security configuration.\n\n` +
+        `  ${err.message}\n\n` +
+        (err.code === '28P01'
+          ? `The password in DATABASE_URL does not match the one the database has ` +
+            `for that role. If migrations just created the role, DATABASE_URL must ` +
+            `carry the same password as APP_DB_PASSWORD.`
+          : `Check DATABASE_URL — host, database name, user and password.`),
+      { cause: err },
+    );
+  }
 
   const row = rows[0];
   if (!row) return { checked: false };

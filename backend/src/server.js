@@ -55,7 +55,7 @@ const app = createApp();
 db.assertRowSecurityApplies()
   .then(({ role }) => console.log(`Database role: ${role} (row-level security applies)`))
   .catch((err) => {
-    console.error(`\nRefusing to start:\n\n${err.message}\n`);
+    console.error(`\nCannot start:\n\n${err.message}\n`);
     process.exit(1);
   });
 
