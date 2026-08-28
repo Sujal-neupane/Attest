@@ -15,5 +15,12 @@ set -e
 echo "→ applying database migrations"
 node db/migrate.js
 
+if [ "$SEED_DEMO" = "true" ]; then
+  echo "→ loading demo data (idempotent)"
+  # Never fatal: a demo that fails to load is a disappointing page, whereas an
+  # API that will not start over it is an outage.
+  node db/seed/demo.js || echo "  demo data could not be loaded — continuing"
+fi
+
 echo "→ starting the API"
 exec node src/server.js

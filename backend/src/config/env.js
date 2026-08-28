@@ -48,6 +48,16 @@ const schema = z.object({
    * and the answer then is to stop paying nothing.
    */
   WORKER_MODE: z.enum(['separate', 'inline']).default('separate'),
+
+  /**
+   * Load the demo dataset on startup, once, if the database has none.
+   *
+   * Exists because a free host gives you no shell, so `npm run seed:demo` is
+   * not reachable on the deployment that most needs a demo in it. Idempotent
+   * and safe to leave on: it checks for the demo account and does nothing if
+   * it is already there.
+   */
+  SEED_DEMO: z.enum(['true', 'false']).default('false'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
   // Where encrypted documents live, and the keys that protect them.

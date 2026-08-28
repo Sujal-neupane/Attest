@@ -28,6 +28,12 @@ services:
       - key: WORKER_MODE
         value: inline
 
+      # Loads the demo period on first boot. A free host has no shell, so this
+      # is the only way to get data into the deployment that most needs it.
+      # Idempotent — it does nothing if the demo account already exists.
+      - key: SEED_DEMO
+        value: 'true'
+
       # ── Database: two roles, and the difference matters ──────────────────
       #
       # Migrations need to create tables; the application must NOT own them.
