@@ -13,6 +13,7 @@ const crypto = require('node:crypto');
 const pinoHttp = require('pino-http');
 
 const env = require('./config/env');
+const { corsOrigin } = require('./config/cors');
 const routes = require('./routes');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 
@@ -28,7 +29,7 @@ function createApp() {
 
   app.use(
     cors({
-      origin: env.CORS_ORIGIN.split(',').map((o) => o.trim()),
+      origin: corsOrigin(env.CORS_ORIGIN),
       credentials: true,
       // An explicit list rather than a wildcard, so adding a header that
       // carries authority is a deliberate act.
