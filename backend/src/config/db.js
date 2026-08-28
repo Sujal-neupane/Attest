@@ -132,46 +132,79 @@ async function unscoped(text, params) {
 }
 
 /**
- * Refuse to serve if the application is connecting as the database owner.
+ * Refuse to serve unless row-level security actually applies to this connection.
  *
- * `jobs` is deliberately RLS-enabled-but-not-forced so the SECURITY DEFINER
- * claim function can see the queue across firms (see migration 005). That is
- * safe precisely because the app connects as a role that owns nothing — the
- * policy applies to it in full.
+ * ─── WHY THIS CHECKS MORE THAN OWNERSHIP ────────────────────────────────────
  *
- * Connect as the owner instead and the same line becomes a cross-tenant leak:
- * every firm would see every firm's jobs, and nothing would look wrong. It is a
- * one-line mistake in a dashboard, and it is exactly the kind that a managed
- * host encourages by handing you a single owner connection string.
+ * It used to check only whether the app connected as the table owner, because
+ * `jobs` is RLS-enabled-but-not-forced and an owner would bypass its policy.
+ * That was too narrow, and a real deployment proved it within minutes.
  *
- * So it is checked at startup, and the process refuses rather than serving.
+ * Neon makes every role created through its console a member of
+ * `neon_superuser`, which carries BYPASSRLS. Such a role owns nothing, so the
+ * ownership check passed happily — while the role bypassed EVERY policy in the
+ * database. Tenant isolation would have been completely off, every firm would
+ * have seen every other firm's clients and documents, and nothing anywhere
+ * would have looked wrong.
+ *
+ * The right question is not "does this role own the tables" but "can this role
+ * bypass row-level security at all", by any route: the attribute directly, or
+ * inherited through a role membership, or by owning a table whose policy is not
+ * forced. All three are checked here, and any of them stops the process.
+ *
+ * A managed host handing you a privileged role by default is not an unusual
+ * situation. It is the normal one.
  */
-async function assertNotTableOwner() {
+async function assertRowSecurityApplies() {
   const { rows } = await pool.query(
-    `SELECT current_user AS role,
-            pg_get_userbyid(c.relowner) AS owner
-       FROM pg_class c
-       JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = 'public' AND c.relname = 'jobs'`,
+    `WITH me AS (SELECT oid, rolname, rolsuper, rolbypassrls
+                   FROM pg_roles WHERE rolname = current_user),
+     inherited AS (
+       SELECT g.rolname, g.rolbypassrls
+         FROM pg_auth_members m
+         JOIN pg_roles g ON g.oid = m.roleid
+         JOIN me ON me.oid = m.member
+        WHERE g.rolbypassrls OR g.rolsuper
+     )
+     SELECT me.rolname                                   AS role,
+            me.rolsuper                                  AS is_superuser,
+            me.rolbypassrls                              AS bypasses_rls,
+            (SELECT string_agg(rolname, ', ') FROM inherited) AS via_membership,
+            (SELECT pg_get_userbyid(c.relowner)
+               FROM pg_class c
+               JOIN pg_namespace n ON n.oid = c.relnamespace
+              WHERE n.nspname = 'public' AND c.relname = 'jobs') AS jobs_owner
+       FROM me`,
   );
 
   const row = rows[0];
   if (!row) return { checked: false };
 
-  if (row.role === row.owner) {
+  const problems = [];
+  if (row.is_superuser) problems.push('it is a superuser');
+  if (row.bypasses_rls) problems.push('it has the BYPASSRLS attribute');
+  if (row.via_membership) {
+    problems.push(`it is a member of ${row.via_membership}, which can bypass RLS`);
+  }
+  if (row.jobs_owner && row.jobs_owner === row.role) {
+    problems.push('it owns the tables, so it bypasses the unforced policy on jobs');
+  }
+
+  if (problems.length > 0) {
     throw new Error(
-      `Attest is connecting to Postgres as "${row.role}", which owns its tables.\n\n` +
-        `That role bypasses the row-level security policy on the jobs table, so ` +
-        `every firm would be able to see every other firm's jobs.\n\n` +
-        `Run migrations as the owner, but point DATABASE_URL at the restricted ` +
-        `role instead:\n` +
-        `  MIGRATION_DATABASE_URL=<owner connection string>\n` +
-        `  DATABASE_URL=<same host/database, user attest_app>\n\n` +
-        `See docs/DEPLOY.md.`,
+      `Attest is connecting to Postgres as "${row.role}", and row-level security ` +
+        `would NOT apply to it:\n` +
+        problems.map((p) => `  - ${p}`).join('\n') +
+        `\n\nEvery firm would be able to read every other firm's data, and ` +
+        `nothing would look wrong.\n\n` +
+        `Create the application role with SQL rather than through a hosting ` +
+        `console — a console-created role is often granted more than you asked ` +
+        `for. Migration 002 creates a correct one; run migrations as the owner ` +
+        `and point DATABASE_URL at attest_app.\n\nSee docs/DEPLOY.md.`,
     );
   }
 
-  return { checked: true, role: row.role, owner: row.owner };
+  return { checked: true, role: row.role };
 }
 
 async function healthcheck() {
@@ -183,4 +216,4 @@ async function close() {
   await pool.end();
 }
 
-module.exports = { pool, withFirm, unscoped, healthcheck, assertNotTableOwner, close };
+module.exports = { pool, withFirm, unscoped, healthcheck, assertRowSecurityApplies, close };

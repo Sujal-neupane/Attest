@@ -42,6 +42,48 @@ BEGIN
 END;
 $$;
 
+-- ---------------------------------------------------------------------------
+-- Refuse to continue if attest_app can bypass row-level security.
+--
+-- A role created through a hosting console is often granted more than you asked
+-- for. Neon, for one, makes every console-created role a member of
+-- neon_superuser, which carries BYPASSRLS — so a role that looks perfectly
+-- ordinary silently bypasses every policy in this schema, and the application
+-- would run with tenant isolation entirely switched off while appearing fine.
+--
+-- The owner usually cannot fix such a role either: it can neither ALTER nor
+-- DROP a role it did not create. So this stops here and says what to do,
+-- rather than granting privileges to something that will ignore them.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  problem text;
+BEGIN
+  SELECT CASE
+           WHEN r.rolsuper THEN 'it is a superuser'
+           WHEN r.rolbypassrls THEN 'it has the BYPASSRLS attribute'
+           ELSE (SELECT 'it is a member of ' || g.rolname ||
+                        ', which can bypass row-level security'
+                   FROM pg_auth_members m
+                   JOIN pg_roles g ON g.oid = m.roleid
+                  WHERE m.member = r.oid AND (g.rolbypassrls OR g.rolsuper)
+                  LIMIT 1)
+         END
+    INTO problem
+    FROM pg_roles r
+   WHERE r.rolname = 'attest_app';
+
+  IF problem IS NOT NULL THEN
+    RAISE EXCEPTION
+      'The attest_app role cannot be used: %', problem
+      USING HINT =
+        'Delete attest_app in your hosting console and re-run migrations — this '
+        'file creates a correct one with SQL. A role that bypasses RLS would '
+        'let every firm read every other firm''s data.';
+  END IF;
+END;
+$$;
+
 -- Explicit and non-negotiable. NOSUPERUSER is stated even though it is the
 -- default, because this is precisely the property that was assumed and wrong.
 --

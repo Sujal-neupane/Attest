@@ -46,13 +46,14 @@ if (env.WORKER_MODE === 'inline') {
 const app = createApp();
 
 /**
- * Check the connection role before accepting a single request.
+ * Check, before accepting a single request, that row-level security actually
+ * applies to this connection.
  *
  * A misconfiguration that leaks across tenants must stop the process, not be
  * discovered by a customer.
  */
-db.assertNotTableOwner()
-  .then(({ role }) => console.log(`Database role: ${role} (not the table owner)`))
+db.assertRowSecurityApplies()
+  .then(({ role }) => console.log(`Database role: ${role} (row-level security applies)`))
   .catch((err) => {
     console.error(`\nRefusing to start:\n\n${err.message}\n`);
     process.exit(1);

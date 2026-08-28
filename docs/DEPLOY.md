@@ -97,9 +97,18 @@ still cannot double-process a document, and there is a test that proves it.
 
 1. **Neon** — create a project, copy the connection string
 2. **Cloudflare R2** — create a bucket, create an API token (Object Read & Write)
-3. **Neon: create a second role.** In the Neon console → Roles → New Role,
-   called `attest_app`. You now have two connection strings, and the difference
-   matters more than it looks — see below.
+3. **Do NOT create the application role in the Neon console.**
+
+   A console-created Neon role is made a member of `neon_superuser`, which
+   carries `BYPASSRLS` — it silently bypasses every policy in the schema, and
+   the owner can then neither `ALTER` nor `DROP` it to fix that. An application
+   running as such a role has tenant isolation entirely switched off while
+   looking completely normal.
+
+   Migration 002 creates a correct `attest_app` with SQL. Just set
+   `APP_DB_PASSWORD` and it is provisioned on the first deploy. If a role of
+   that name already exists and is privileged, migrations stop and say so, and
+   the app refuses to start for the same reason.
 
 4. **Render** — new **Web Service** (not a Blueprint, which would create the
    paid worker), build with `backend/Dockerfile`, and set:
