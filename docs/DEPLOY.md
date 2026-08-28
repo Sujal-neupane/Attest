@@ -249,6 +249,45 @@ Set `VITE_API_URL` to the deployed API's origin, e.g.
 `/periods/<id>` survives a refresh, and sets the security headers the app cannot
 set for itself.
 
+### `VITE_API_URL` is config, not a secret
+
+Vercel offers to mark an environment variable **Sensitive**. Do not, for this
+one — and understand why, because the reasoning matters more than the setting.
+
+Anything prefixed `VITE_` is **inlined into the JavaScript bundle at build
+time**. It is in the file every visitor downloads:
+
+```bash
+grep -o "https://attest-bu7j.onrender.com" frontend/dist/assets/*.js
+```
+
+The "Sensitive" flag only stops *you* reading the value back in the dashboard.
+It hides it from the operator, not from the internet, and here that costs you
+the ability to check a value whose only failure mode is being silently wrong.
+
+**Never put a secret in a `VITE_`-prefixed variable** — not an API key, not a
+database URL, not a token. Anything requiring a credential goes through the
+backend, which holds it server-side. `ANTHROPIC_API_KEY` is handled that way for
+exactly this reason.
+
+The API's address is not a secret in any case: it is visible in the browser's
+network tab the moment the app loads. What protects the API is JWT
+authentication, row-level security, and CORS — never the obscurity of its URL.
+
+### Two failures that look like bugs and are configuration
+
+**`Request failed (405)` on the signup form.** `VITE_API_URL` was not set at
+build time, so the client fell back to a relative `/api`, the browser posted to
+the static host, the SPA rewrite mapped it to `index.html`, and a POST to a
+static file returned 405. The API never saw the request. The client now refuses
+before the network and says so — but if you see a bare 405 from an older build,
+this is it.
+
+**Setting the variable appears to do nothing.** It is read at *build* time, not
+runtime, so saving it in the dashboard does not change the bundle already
+deployed. **Redeploy after setting it.** This is the half people miss: the
+variable looks correctly configured while the site keeps failing.
+
 ---
 
 ## Before this is a real product, not a demo
