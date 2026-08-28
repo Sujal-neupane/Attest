@@ -18,8 +18,10 @@ services:
     dockerContext: ./backend
     plan: free
     healthCheckPath: /api/health
-    # Migrations run, as the OWNER role, before the API serves a request.
-    dockerCommand: sh -c "node db/migrate.js && node src/server.js"
+    # No dockerCommand: the image's own entrypoint (backend/bin/start.sh) runs
+    # migrations then the API. A multi-command string here is quoted by whatever
+    # the host does with it, and when that goes wrong the only symptom is
+    # "exited with status 127" with nothing to say which command was not found.
     envVars:
       - key: NODE_ENV
         value: production

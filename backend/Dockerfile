@@ -34,6 +34,7 @@ COPY --from=deps --chown=node:node /app/node_modules ./node_modules
 COPY --chown=node:node package.json ./
 COPY --chown=node:node src ./src
 COPY --chown=node:node db ./db
+COPY --chown=node:node bin ./bin
 
 # Create the storage directory in the IMAGE, owned by node.
 #
@@ -53,4 +54,6 @@ EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||4000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "src/server.js"]
+# Migrations run before the API serves a request, so a release that adds a
+# column cannot start serving before the column exists.
+CMD ["./bin/start.sh"]
