@@ -16,9 +16,55 @@ const BASE = import.meta.env?.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL.replace(/\/$/, '')}/api`
   : '/api';
 
+/**
+ * A production build with no VITE_API_URL is misconfigured, and it fails in a
+ * way that explains nothing.
+ *
+ * The relative `/api` base is correct in development, where Vite proxies it. In
+ * a deployed build there is no proxy, so the browser posts to the static host
+ * instead — which rewrites everything to index.html and answers a POST with
+ * "405 Method Not Allowed". The user sees `Request failed (405)` on the signup
+ * form and has no way to guess that a build-time variable is missing, because
+ * nothing in that message mentions configuration, the API, or the URL.
+ *
+ * VITE_API_URL is inlined at BUILD time, not read at runtime, so adding it to
+ * the host's dashboard changes nothing until the app is rebuilt — which is the
+ * second half of the trap, and the reason this message says so.
+ */
+const MISCONFIGURED = Boolean(import.meta.env?.PROD) && !import.meta.env?.VITE_API_URL;
+
+const MISCONFIGURED_MESSAGE =
+  'This build has no API address, so it is sending requests to itself and the ' +
+  'static host is rejecting them. Set VITE_API_URL to the API origin ' +
+  '(for example https://attest-bu7j.onrender.com) and REDEPLOY — the value is ' +
+  'baked in at build time, so saving it without rebuilding changes nothing.';
+
+/**
+ * Read the stored refresh token, tolerating storage that is not there.
+ *
+ * The write and the clear were already wrapped; this read was not, and it runs
+ * at module scope — so anywhere `localStorage` is absent or throws on access,
+ * the module fails to evaluate and the entire application renders a white
+ * screen with a console error, before a single component mounts. That is the
+ * worst possible failure for the least important feature in the file: the
+ * refresh token is a convenience, and losing it should cost a login, not the
+ * whole app.
+ *
+ * Storage is genuinely missing more often than it looks — Safari with
+ * cross-site tracking prevention, a browser set to block site data, some
+ * embedded webviews, and any test environment without a DOM.
+ */
+function storedRefreshToken() {
+  try {
+    return localStorage.getItem('attest.refresh') || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Tokens live in memory, with the refresh token mirrored to localStorage. */
 let accessToken = null;
-let refreshToken = localStorage.getItem('attest.refresh') || null;
+let refreshToken = storedRefreshToken();
 let onUnauthenticated = () => {};
 
 export function setTokens({ accessToken: access, refreshToken: refresh }) {
@@ -88,6 +134,10 @@ async function raw(path, { method = 'GET', body, headers = {}, isForm = false } 
  * expired login into a hammering of the auth endpoint.
  */
 async function request(path, options = {}, { retry = true } = {}) {
+  // Fail before the network, so the message names the cause rather than
+  // whatever the static host happens to answer.
+  if (MISCONFIGURED) throw new ApiError(0, { error: { message: MISCONFIGURED_MESSAGE } });
+
   let res = await raw(path, options);
 
   if (res.status === 401 && retry && refreshToken) {
