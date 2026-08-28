@@ -78,8 +78,21 @@ async function seed({ log = console.log } = {}) {
   const documentService = createDocumentService({ store });
 
   // Already seeded? Leave it alone rather than stacking a second copy.
+  //
+  // This MUST go through attest_login_lookup() rather than reading `users`
+  // directly. A plain SELECT here runs as the app role with no
+  // app.current_firm_id set, so row-level security hides every row in the
+  // table and the check returns zero — on a database that already holds the
+  // demo firm. The seed then believed it was starting fresh and ran straight
+  // into `duplicate key value violates unique constraint "users_email_key"`,
+  // because that index is global while the policy is not.
+  //
+  // An RLS-scoped existence check cannot answer a cross-firm question. The
+  // SECURITY DEFINER function is the same one login uses, and for the same
+  // reason: finding a user by email, before any firm is known, is inherently
+  // unscoped.
   const { rows: existing } = await pool.query(
-    'SELECT id, firm_id AS "firmId" FROM users WHERE lower(email) = $1',
+    'SELECT id, firm_id AS "firmId" FROM attest_login_lookup($1)',
     [DEMO_EMAIL],
   );
   if (existing.length > 0) {

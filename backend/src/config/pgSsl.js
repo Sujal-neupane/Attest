@@ -37,19 +37,42 @@ function sslFor({ databaseUrl = '', nodeEnv = process.env.NODE_ENV, explicit = p
 }
 
 /**
- * Managed providers present a certificate chain Node's default agent rejects,
- * because the root is theirs rather than a public CA. The connection is still
- * encrypted; what is skipped is verifying the chain.
+ * TLS options — the certificate chain IS verified.
  *
- * That is a real, if narrow, weakness: it does not protect against an attacker
- * who can already intercept traffic inside the provider's network. It is
- * accepted because the alternative — refusing to connect at all — is worse, and
- * because DATABASE_CA_CERT closes it properly for anyone who supplies the
- * provider's root certificate.
+ * This used to return `{ rejectUnauthorized: false }` by default, on the belief
+ * that managed providers present a chain Node's agent rejects. That was worth
+ * re-testing rather than inheriting, and against the live Neon database it is
+ * simply not true: the chain verifies against Node's bundled CA store on the
+ * first try. The weakness was being carried for no benefit at all.
+ *
+ * It is not a small weakness. Unverified TLS encrypts the connection but
+ * authenticates nothing, so anything able to answer for the database host —
+ * inside the provider's network, or by way of DNS — can present its own
+ * certificate and read every client's financial data in the clear. Encryption
+ * without verification looks identical to the real thing from the client side,
+ * which is what makes it worth being deliberate about.
+ *
+ *   DATABASE_CA_CERT       a provider's own root, for a private CA
+ *   DATABASE_SSL_INSECURE  =true to skip verification, and say so in the log
+ *
+ * The escape hatch exists because some self-hosted Postgres really does present
+ * a self-signed certificate, and a deployment that cannot start is its own kind
+ * of failure. It announces itself rather than being the quiet default.
  */
 function tlsOptions() {
   const ca = process.env.DATABASE_CA_CERT;
-  return ca ? { ca, rejectUnauthorized: true } : { rejectUnauthorized: false };
+  if (ca) return { ca, rejectUnauthorized: true };
+
+  if (process.env.DATABASE_SSL_INSECURE === 'true') {
+    console.warn(
+      '[db] DATABASE_SSL_INSECURE=true — the database certificate is NOT being ' +
+        'verified. The connection is encrypted but unauthenticated. Supply the ' +
+        "provider's root in DATABASE_CA_CERT to close this.",
+    );
+    return { rejectUnauthorized: false };
+  }
+
+  return { rejectUnauthorized: true };
 }
 
 module.exports = { sslFor };

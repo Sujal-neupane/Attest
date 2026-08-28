@@ -70,6 +70,24 @@ function createApp() {
 
   app.use('/api', routes);
 
+  // The root is not a 404.
+  //
+  // This API is deployed on its own host, so `/` is what a platform's uptime
+  // pinger, a browser, and anyone handed the URL all hit first. Answering with
+  // a 404 and a logged stack trace made every wake-up look like an error in
+  // the logs, and told a human nothing about what they had reached.
+  //
+  // It names the service and points at the health check. Nothing here is
+  // sensitive: no version, no build id, no dependency list — an unauthenticated
+  // endpoint should not describe the attack surface.
+  app.get('/', (req, res) => {
+    res.json({
+      service: 'Attest — VAT and audit assistant',
+      documentation: 'https://github.com/Sujal-neupane/Attest',
+      health: '/api/health',
+    });
+  });
+
   app.use(notFound);
   app.use(errorHandler);
 
