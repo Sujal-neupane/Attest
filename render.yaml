@@ -1,51 +1,59 @@
-# Render blueprint: database, API and worker.
+# Render blueprint — the FREE topology.
 #
-# The worker is a SEPARATE service, not a thread inside the API. Parsing is
-# CPU-heavy; sharing a process means one large statement makes every request
-# slow, and it means the answer to "we need more throughput" is a bigger box
-# rather than another worker.
-
-databases:
-  - name: attest-db
-    databaseName: attest
-    plan: free
-    postgresMajorVersion: '16'
+# One web service, running the API with the parse loop inside it
+# (WORKER_MODE=inline). No background worker, because Render has no free
+# instance type for one, and no Render Postgres, because a free one is DELETED
+# 30 days after creation — bring a Neon database instead.
+#
+# The better architecture, with a separate worker process, is in docs/DEPLOY.md.
+# Nothing about correctness changes between them: "a document is parsed exactly
+# once" is guaranteed by SELECT ... FOR UPDATE SKIP LOCKED in the database, not
+# by the process model.
 
 services:
   - type: web
-    name: attest-api
+    name: attest
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     plan: free
     healthCheckPath: /api/health
-    # Migrations run before the new instance serves traffic.
+    # Migrations run, as the OWNER role, before the API serves a request.
     dockerCommand: sh -c "node db/migrate.js && node src/server.js"
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATABASE_URL
-        fromDatabase: { name: attest-db, property: connectionString }
-      # Generated once by Render and never seen by anyone, which is what a
-      # signing secret should be.
+      - key: WORKER_MODE
+        value: inline
+
+      # ── Database: two roles, and the difference matters ──────────────────
+      #
+      # Migrations need to create tables; the application must NOT own them.
+      # `jobs` has RLS enabled but not forced so the worker's claim function can
+      # see the queue across firms — which is safe only while the app connects
+      # as a role that owns nothing. The app refuses to start otherwise.
+      # See docs/DEPLOY.md.
+      - key: MIGRATION_DATABASE_URL      # Neon owner connection string
+        sync: false
+      - key: DATABASE_URL                # same database, user attest_app
+        sync: false
+      - key: APP_DB_PASSWORD             # provisions attest_app on first deploy
+        sync: false
+      - key: DATABASE_SSL
+        value: 'true'
+
+      # ── Secrets Render generates and nobody ever sees ────────────────────
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
         generateValue: true
-      # MUST be set by hand to a base64 32-byte key, and MUST match the worker.
-      # Deliberately not generateValue: Render would generate a different one
-      # for each service, and the worker would be unable to decrypt anything the
-      # API stored. See render notes in README.
-      - key: STORAGE_ENCRYPTION_KEY
-        sync: false
       - key: STORAGE_SIGNING_SECRET
-        sync: false
-      - key: CORS_ORIGIN
-        sync: false
-      # Object storage, not a disk. Render's free tier does not share a disk
-      # between services, so the worker could not read what the API wrote —
-      # and even on a paid plan a shared disk stops working the moment there
-      # is more than one instance of either.
+        generateValue: true
+
+      # ── Object storage (Cloudflare R2 free tier) ─────────────────────────
+      #
+      # Not a disk: Render's free tier has no persistent one, so uploaded
+      # documents would vanish on every restart.
       - key: STORAGE_BACKEND
         value: s3
       - key: STORAGE_ENDPOINT
@@ -59,36 +67,16 @@ services:
       - key: STORAGE_SECRET_ACCESS_KEY
         sync: false
 
-  - type: worker
-    name: attest-worker
-    runtime: docker
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
-    plan: free
-    dockerCommand: node src/workers/index.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: DATABASE_URL
-        fromDatabase: { name: attest-db, property: connectionString }
-      - key: JWT_ACCESS_SECRET
-        fromService: { name: attest-api, type: web, envVarKey: JWT_ACCESS_SECRET }
-      - key: JWT_REFRESH_SECRET
-        fromService: { name: attest-api, type: web, envVarKey: JWT_REFRESH_SECRET }
-      # The same key as the API, by hand. This is the single most important
-      # value to get right in the whole file.
+      # Set by hand: `openssl rand -base64 32`. Safe to generate here only
+      # because there is ONE process — split the worker out and it must be
+      # identical on both, or the worker cannot decrypt what the API stored.
       - key: STORAGE_ENCRYPTION_KEY
         sync: false
-      # And the same bucket, for the same reason.
-      - key: STORAGE_BACKEND
-        value: s3
-      - key: STORAGE_ENDPOINT
+
+      - key: CORS_ORIGIN                 # the Vercel URL, once you have it
         sync: false
-      - key: STORAGE_BUCKET
-        sync: false
-      - key: STORAGE_REGION
-        value: auto
-      - key: STORAGE_ACCESS_KEY_ID
-        sync: false
-      - key: STORAGE_SECRET_ACCESS_KEY
-        sync: false
+
+      # Optional. Without it everything works except reading PDF invoices, and
+      # an uploaded invoice says exactly that.
+      # - key: ANTHROPIC_API_KEY
+      #   sync: false
