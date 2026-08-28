@@ -52,6 +52,13 @@ const app = createApp();
  * A misconfiguration that leaks across tenants must stop the process, not be
  * discovered by a customer.
  */
+// Stated before anything can fail, so a failing deploy log always shows which
+// connection was being attempted. Never the password itself.
+{
+  const { host, database, user, passwordLength } = db.describeConnection();
+  console.log(`Database: ${user}@${host}/${database} (password ${passwordLength} chars)`);
+}
+
 db.assertRowSecurityApplies()
   .then(({ role }) => console.log(`Database role: ${role} (row-level security applies)`))
   .catch((err) => {

@@ -132,6 +132,30 @@ async function unscoped(text, params) {
 }
 
 /**
+ * Describe the connection, without ever printing the password.
+ *
+ * Two deploys were lost to "password authentication failed" with no way to tell
+ * WHICH connection string was wrong — the app knew, and said nothing. Host,
+ * database and user identify it; the password's length alone is enough to spot
+ * the usual mistake, which is pasting the owner's credentials under the
+ * application role's name.
+ */
+function describeConnection() {
+  try {
+    const url = new URL(env.DATABASE_URL);
+    return {
+      host: url.hostname,
+      database: url.pathname.replace(/^\//, ''),
+      user: decodeURIComponent(url.username || '(none)'),
+      passwordLength: url.password ? decodeURIComponent(url.password).length : 0,
+    };
+  } catch {
+    // A connection string can legitimately be key=value rather than a URL.
+    return { host: '(unparsed)', database: '(unparsed)', user: '(unparsed)', passwordLength: 0 };
+  }
+}
+
+/**
  * Refuse to serve unless row-level security actually applies to this connection.
  *
  * ─── WHY THIS CHECKS MORE THAN OWNERSHIP ────────────────────────────────────
@@ -186,9 +210,16 @@ async function assertRowSecurityApplies() {
       `Could not connect to the database to check its security configuration.\n\n` +
         `  ${err.message}\n\n` +
         (err.code === '28P01'
-          ? `The password in DATABASE_URL does not match the one the database has ` +
-            `for that role. If migrations just created the role, DATABASE_URL must ` +
-            `carry the same password as APP_DB_PASSWORD.`
+          ? `DATABASE_URL is pointing at:\n` +
+            `  host      ${describeConnection().host}\n` +
+            `  database  ${describeConnection().database}\n` +
+            `  user      ${describeConnection().user}\n` +
+            `  password  ${describeConnection().passwordLength} characters\n\n` +
+            `The database does not accept that password for that user. Migrations ` +
+            `set the role's password from APP_DB_PASSWORD, so DATABASE_URL must ` +
+            `carry the SAME value. A common mistake is copying the owner's ` +
+            `connection string and changing only the username, which leaves the ` +
+            `owner's password behind.`
           : `Check DATABASE_URL — host, database name, user and password.`),
       { cause: err },
     );
@@ -233,4 +264,12 @@ async function close() {
   await pool.end();
 }
 
-module.exports = { pool, withFirm, unscoped, healthcheck, assertRowSecurityApplies, close };
+module.exports = {
+  pool,
+  withFirm,
+  unscoped,
+  healthcheck,
+  assertRowSecurityApplies,
+  describeConnection,
+  close,
+};
